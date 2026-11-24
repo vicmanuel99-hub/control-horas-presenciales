@@ -1,0 +1,2646 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Control de Horas Presenciales &amp; Desconexiones</title>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #f3f6fb;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --primary: #0052cc;
+      --primary-light: #019df4;
+      --primary-soft: #e6f2ff;
+      --green: #10b981;
+      --green-soft: #dcfce7;
+      --green-text: #065f46;
+      --red: #ef4444;
+      --red-soft: #fee2e2;
+      --red-text: #991b1b;
+      --amber: #f59e0b;
+      --amber-soft: #fef3c7;
+      --amber-text: #92400e;
+      --purple: #8b5cf6;
+      --purple-soft: #ede9fe;
+      --purple-text: #5b21b6;
+      --blue: #3b82f6;
+      --blue-soft: #dbeafe;
+      --blue-text: #1e40af;
+      --gray-bar: #94a3b8;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.04);
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      min-height: 100vh;
+    }
+
+    /* HEADER */
+    .topbar {
+      background: linear-gradient(135deg, #0b1f3a 0%, #00419e 60%, #0077cc 100%);
+      color: #fff;
+      padding: 16px 24px;
+      box-shadow: 0 4px 16px rgba(0, 40, 100, 0.18);
+      position: sticky;
+      top: 0;
+      z-index: 40;
+    }
+    .topbar-inner {
+      max-width: 1480px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.16);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+    .brand h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+    }
+    .brand p {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.8);
+    }
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    /* BUTTONS */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 13px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--surface-2); border-color: #cbd5e1; }
+    .btn-primary {
+      background: var(--primary-light);
+      border-color: transparent;
+      color: #fff;
+    }
+    .btn-primary:hover { background: #0284c7; }
+    .btn-glass {
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      color: #fff;
+    }
+    .btn-glass:hover { background: rgba(255, 255, 255, 0.24); border-color: rgba(255, 255, 255, 0.45); }
+    .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
+    .btn-danger-soft { background: var(--red-soft); color: var(--red-text); border-color: #fecaca; }
+    .btn-danger-soft:hover { background: #fecaca; }
+
+    /* MAIN CONTAINER */
+    .container {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 18px 24px 48px;
+    }
+
+    /* STATUS BANNER */
+    #status-banner {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 16px;
+      border-radius: 10px;
+      margin-bottom: 14px;
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid transparent;
+    }
+    #status-banner.show { display: flex; }
+    #status-banner.info { background: var(--blue-soft); color: var(--blue-text); border-color: #bfdbfe; }
+    #status-banner.ok { background: var(--green-soft); color: var(--green-text); border-color: #a7f3d0; }
+    #status-banner.warn { background: var(--amber-soft); color: var(--amber-text); border-color: #fde68a; }
+    #status-banner.err { background: var(--red-soft); color: var(--red-text); border-color: #fecaca; }
+    .banner-close {
+      background: transparent;
+      border: none;
+      color: inherit;
+      font-size: 16px;
+      cursor: pointer;
+      opacity: 0.7;
+      padding: 0 4px;
+    }
+    .banner-close:hover { opacity: 1; }
+
+    /* UPLOAD / SOURCE STRIP */
+    .upload-strip {
+      background: var(--surface);
+      border: 1px dashed #94a3b8;
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      transition: all 0.18s ease;
+    }
+    .upload-strip.dragover {
+      border-color: var(--primary-light);
+      background: var(--primary-soft);
+      transform: scale(1.005);
+    }
+    .upload-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .source-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .source-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+    .upload-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .mode-select {
+      padding: 7px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* FILTERS PANEL */
+    .filters-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 135px;
+    }
+    .filter-group.grow { flex: 1; min-width: 210px; }
+    .filter-group label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--text-muted);
+    }
+    .filter-input, .filter-select {
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      background: var(--surface-2);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .filter-input:focus, .filter-select:focus {
+      border-color: var(--primary-light);
+      background: #fff;
+    }
+    .filter-checks {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding-bottom: 2px;
+    }
+    .toggle-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 11px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s;
+    }
+    .toggle-chip input { accent-color: var(--primary); cursor: pointer; }
+    .toggle-chip.active-alert {
+      background: var(--red-soft);
+      border-color: #fca5a5;
+      color: var(--red-text);
+    }
+    .toggle-chip.active-blue {
+      background: var(--blue-soft);
+      border-color: #93c5fd;
+      color: var(--blue-text);
+    }
+
+    /* KPI GRID */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 1220px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 680px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      box-shadow: var(--shadow);
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--kpi-accent, var(--primary));
+    }
+    .kpi-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .kpi-value {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: var(--text);
+      line-height: 1.15;
+    }
+    .kpi-sub {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-top: 5px;
+    }
+
+    /* TABS */
+    .tabs-bar {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 16px;
+      border-radius: 9px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .tab-btn:hover { background: #e2e8f0; color: var(--text); }
+    .tab-btn.active {
+      background: var(--primary);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(0, 82, 204, 0.25);
+    }
+    .tab-badge {
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(15, 23, 42, 0.08);
+      color: inherit;
+    }
+    .tab-btn.active .tab-badge { background: rgba(255, 255, 255, 0.22); }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* CARDS & TABLES */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: var(--surface-2);
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+    .table-wrap {
+      overflow-x: auto;
+      max-height: 620px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: #f1f5f9;
+      color: #334155;
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    thead th.sortable { cursor: pointer; user-select: none; }
+    thead th.sortable:hover { background: #e2e8f0; color: var(--primary); }
+    thead th.sorted-asc::after { content: ' ▲'; font-size: 10px; color: var(--primary); }
+    thead th.sorted-desc::after { content: ' ▼'; font-size: 10px; color: var(--primary); }
+    tbody td {
+      padding: 9px 12px;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: middle;
+    }
+    tbody tr:hover { background: #f8fafc; }
+    tbody tr.clickable { cursor: pointer; }
+    tbody tr.clickable:hover { background: #eff6ff; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+
+    /* BADGES */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .b-green { background: var(--green-soft); color: var(--green-text); }
+    .b-red { background: var(--red-soft); color: var(--red-text); }
+    .b-amber { background: var(--amber-soft); color: var(--amber-text); }
+    .b-blue { background: var(--blue-soft); color: var(--blue-text); }
+    .b-purple { background: var(--purple-soft); color: var(--purple-text); }
+    .b-gray { background: #e2e8f0; color: #334155; }
+
+    /* PROGRESS BAR */
+    .prog-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 110px;
+    }
+    .prog-track {
+      flex: 1;
+      height: 7px;
+      background: #e2e8f0;
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .prog-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width 0.25s ease;
+    }
+
+    /* GRID 2 COL */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+    @media (max-width: 980px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    /* HORIZONTAL BAR LIST */
+    .bar-list { padding: 14px 18px; display: flex; flex-direction: column; gap: 11px; }
+    .bar-item { display: flex; flex-direction: column; gap: 4px; }
+    .bar-item-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 13px;
+      gap: 8px;
+    }
+    .bar-item-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-item-val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12.5px; }
+    .bar-bg { height: 9px; background: #edf2f7; border-radius: 99px; overflow: hidden; }
+    .bar-fg { height: 100%; border-radius: 99px; }
+
+    /* DAILY STACKED CHART */
+    .chart-box {
+      padding: 18px;
+      overflow-x: auto;
+    }
+    .daily-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      min-height: 220px;
+      padding: 16px 8px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .day-col {
+      flex: 1;
+      min-width: 56px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+    .day-col:hover .day-bar-wrap { transform: translateY(-2px); }
+    .day-bar-wrap {
+      width: 100%;
+      max-width: 44px;
+      height: 170px;
+      display: flex;
+      flex-direction: column-reverse;
+      border-radius: 6px 6px 2px 2px;
+      overflow: hidden;
+      background: #f1f5f9;
+      transition: transform 0.15s;
+    }
+    .day-seg { width: 100%; transition: height 0.25s; }
+    .day-label { font-size: 11px; font-weight: 700; color: #475569; white-space: nowrap; }
+    .day-total { font-size: 10.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .legend {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 10px 18px 0;
+    }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+    .legend-swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+    .swatch-gap {
+      background: repeating-linear-gradient(
+        45deg,
+        #f43f5e,
+        #f43f5e 4px,
+        #fecdd3 4px,
+        #fecdd3 8px
+      );
+      border: 1px solid #e11d48;
+    }
+
+    /* PILLS SUBFILTER */
+    .pills-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .pill-btn {
+      padding: 5px 11px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .pill-btn.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    /* MODAL */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.58);
+      backdrop-filter: blur(3px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--surface);
+      width: 100%;
+      max-width: 1120px;
+      max-height: 90vh;
+      border-radius: 16px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-header {
+      padding: 16px 22px;
+      background: linear-gradient(135deg, #0b1f3a 0%, #00419e 100%);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .modal-header h2 { font-size: 17px; font-weight: 700; }
+    .modal-meta { font-size: 12px; color: rgba(255, 255, 255, 0.82); margin-top: 2px; }
+    .modal-close {
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .modal-close:hover { background: rgba(255, 255, 255, 0.25); }
+    .modal-body {
+      padding: 18px 22px 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .mini-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+    }
+    @media (max-width: 820px) { .mini-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+    .mini-kpi {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .mini-kpi-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+    .mini-kpi-val { font-size: 18px; font-weight: 800; margin-top: 3px; }
+
+    /* TIMELINE GANTT */
+    .timeline-box {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      background: var(--surface-2);
+    }
+    .timeline-axis {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10.5px;
+      color: var(--text-muted);
+      margin-left: 92px;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .timeline-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .timeline-row:last-child { margin-bottom: 0; }
+    .timeline-date {
+      width: 82px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #334155;
+      flex-shrink: 0;
+    }
+    .timeline-track {
+      position: relative;
+      flex: 1;
+      height: 24px;
+      background: #e2e8f0;
+      border-radius: 6px;
+      overflow: hidden;
+      background-image: linear-gradient(to right, rgba(15,23,42,0.06) 1px, transparent 1px);
+      background-size: 12.5% 100%;
+    }
+    .tl-seg {
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      border-radius: 3px;
+      min-width: 3px;
+      cursor: help;
+    }
+    .tl-prod { background: #10b981; }
+    .tl-tech { background: #ef4444; }
+    .tl-noprod { background: #3b82f6; }
+    .tl-nopag { background: #94a3b8; }
+    .tl-gap {
+      background: repeating-linear-gradient(45deg, #f43f5e, #f43f5e 4px, #ffe4e6 4px, #ffe4e6 8px);
+      border: 1px solid #e11d48;
+      z-index: 3;
+    }
+
+    /* EMPTY STATE */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+    }
+    .empty-state .icon { font-size: 34px; margin-bottom: 8px; }
+    .obs-cell {
+      max-width: 280px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      color: #334155;
+    }
+    .pagination-bar {
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      background: var(--surface-2);
+      font-size: 12.5px;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-icon">⏱️</div>
+        <div>
+          <h1>Control de Horas Presenciales &amp; Desconexiones</h1>
+          <p>Dashboard operativo por operador · Análisis de huecos, incidencias de equipo y cierres</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn btn-primary" id="btn-upload-top">📂 Subir / Actualizar archivo</button>
+        <button class="btn btn-glass" id="btn-export-ops">⬇️ Resumen Operadores</button>
+        <button class="btn btn-glass" id="btn-export-gaps">⬇️ Reporte Desconexiones</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="status-banner" role="status">
+      <span id="status-text"></span>
+      <button class="banner-close" id="btn-close-banner" title="Cerrar aviso">✕</button>
+    </div>
+
+    <!-- UPLOAD & DATA SOURCE BAR -->
+    <section class="upload-strip" id="dropzone">
+      <div class="upload-left">
+        <span class="source-pill">
+          <span class="source-dot" id="source-dot"></span>
+          <span id="source-name">Cargando datos iniciales...</span>
+        </span>
+        <span style="font-size:12.5px;color:var(--text-muted);" id="source-meta">
+          Arrastra aquí un archivo <strong>.xlsx</strong>, <strong>.xls</strong> o <strong>.csv</strong> de Horas Presenciales para actualizar el dashboard al instante.
+        </span>
+      </div>
+      <div class="upload-controls">
+        <select class="mode-select" id="upload-mode" title="Modo de carga">
+          <option value="replace">Modo: Reemplazar datos</option>
+          <option value="merge">Modo: Fusionar (sin duplicados)</option>
+        </select>
+        <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.txt" multiple hidden />
+        <button class="btn btn-sm" id="btn-pick-file">📄 Elegir archivo(s)</button>
+        <button class="btn btn-sm" id="btn-reset-base" title="Volver a cargar datos_iniciales.csv">↺ Restaurar base</button>
+      </div>
+    </section>
+
+    <!-- FILTERS -->
+    <section class="filters-card">
+      <div class="filter-group grow">
+        <label for="f-search">Buscar operador / matrícula / obs.</label>
+        <input type="text" id="f-search" class="filter-input" placeholder="Ej: Sadith, 6593, i16203, reinicio..." />
+      </div>
+      <div class="filter-group">
+        <label for="f-fecha">Fecha</label>
+        <select id="f-fecha" class="filter-select">
+          <option value="ALL">Todas las fechas</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="f-turno">Turno (SubTipo)</label>
+        <select id="f-turno" class="filter-select">
+          <option value="ALL">Todos</option>
+          <option value="H. Diurnas">H. Diurnas</option>
+          <option value="H. Nocturnas">H. Nocturnas</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="f-servicio">Servicio</label>
+        <select id="f-servicio" class="filter-select">
+          <option value="ALL">Todos</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="f-mingap">Umbral desconexión</label>
+        <select id="f-mingap" class="filter-select">
+          <option value="1">Huecos ≥ 1 min</option>
+          <option value="5" selected>Huecos ≥ 5 min</option>
+          <option value="15">Huecos ≥ 15 min</option>
+          <option value="30">Huecos ≥ 30 min</option>
+          <option value="60">Huecos ≥ 60 min</option>
+        </select>
+      </div>
+      <div class="filter-checks">
+        <label class="toggle-chip" id="chip-breaks" title="Oculta huecos entre 40 y 65 min que suelen corresponder a refrigerio/pausa">
+          <input type="checkbox" id="f-hide-breaks" />
+          🍽️ Omitir pausas (40-65m)
+        </label>
+        <label class="toggle-chip" id="chip-alerts" title="Muestra solo operadores con huecos, incidencias de equipo, sesiones sin cerrar o anomalías >12h">
+          <input type="checkbox" id="f-only-alerts" />
+          ⚠️ Solo con alertas
+        </label>
+        <button class="btn btn-sm" id="btn-clear-filters">Limpiar</button>
+      </div>
+    </section>
+
+    <!-- 6 EXECUTIVE KPIS -->
+    <section class="kpi-grid">
+      <div class="kpi-card" style="--kpi-accent: var(--primary);">
+        <div class="kpi-label"><span>Operadores Activos</span><span>👥</span></div>
+        <div class="kpi-value" id="kpi-ops">0</div>
+        <div class="kpi-sub" id="kpi-ops-sub">0 registros · 0 días</div>
+      </div>
+      <div class="kpi-card" style="--kpi-accent: var(--green);">
+        <div class="kpi-label"><span>Horas Productivas</span><span>✅</span></div>
+        <div class="kpi-value" id="kpi-prod">00:00</div>
+        <div class="kpi-sub" id="kpi-prod-sub">0% de la jornada</div>
+      </div>
+      <div class="kpi-card" style="--kpi-accent: var(--blue);">
+        <div class="kpi-label"><span>Tiempo No Productivo</span><span>🛠️</span></div>
+        <div class="kpi-value" id="kpi-noprod">00:00</div>
+        <div class="kpi-sub" id="kpi-noprod-sub">0 eventos · Equipo: 00:00</div>
+      </div>
+      <div class="kpi-card" style="--kpi-accent: var(--red);">
+        <div class="kpi-label"><span>Desconexiones (Huecos)</span><span>🔌</span></div>
+        <div class="kpi-value" id="kpi-gaps">00:00</div>
+        <div class="kpi-sub" id="kpi-gaps-sub">0 huecos · 0 agentes</div>
+      </div>
+      <div class="kpi-card" style="--kpi-accent: var(--amber);">
+        <div class="kpi-label"><span>Horas No Pagables</span><span>⏳</span></div>
+        <div class="kpi-value" id="kpi-nopag">00:00</div>
+        <div class="kpi-sub" id="kpi-nopag-sub">0 salidas tardías (&gt;10m)</div>
+      </div>
+      <div class="kpi-card" style="--kpi-accent: var(--purple);">
+        <div class="kpi-label"><span>Alertas de Cierre</span><span>🚨</span></div>
+        <div class="kpi-value" id="kpi-anoms">0</div>
+        <div class="kpi-sub" id="kpi-anoms-sub">0 sin cerrar · 0 sesiones &gt;12h</div>
+      </div>
+    </section>
+
+    <!-- TABS NAVIGATION -->
+    <nav class="tabs-bar" role="tablist">
+      <button class="tab-btn active" data-tab="operadores">👤 Dashboard por Operador <span class="tab-badge" id="badge-ops">0</span></button>
+      <button class="tab-btn" data-tab="desconexiones">🔌 Desconexiones e Incidencias <span class="tab-badge" id="badge-gaps">0</span></button>
+      <button class="tab-btn" data-tab="evolucion">📊 Evolución Diaria &amp; Rankings</button>
+      <button class="tab-btn" data-tab="registros">📋 Registros Detallados <span class="tab-badge" id="badge-logs">0</span></button>
+    </nav>
+
+    <!-- TAB 1: DASHBOARD POR OPERADOR -->
+    <section class="tab-panel active" id="tab-operadores">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">👤 Rendimiento y Desconexiones por Operador</div>
+            <div class="card-subtitle">Haz clic en cualquier operador para abrir su expediente con línea de tiempo visual por día y detalle de huecos.</div>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);" id="ops-count-label">Mostrando 0 operadores</div>
+        </div>
+        <div class="table-wrap">
+          <table id="tbl-operadores">
+            <thead>
+              <tr>
+                <th class="sortable" data-sort="nombre">Operador</th>
+                <th class="sortable" data-sort="servicio">Servicio / Turno</th>
+                <th class="sortable num" data-sort="dias">Días</th>
+                <th class="sortable num" data-sort="prodMin">Productivo</th>
+                <th class="sortable num" data-sort="noProdMin">No Prod.</th>
+                <th class="sortable num" data-sort="techMin">Equipo/Red</th>
+                <th class="sortable num" data-sort="gapMin">Huecos (Descon.)</th>
+                <th class="sortable num" data-sort="postNoPagMin">Post-Turno</th>
+                <th class="sortable" data-sort="alertScore">Alertas</th>
+                <th class="sortable" data-sort="prodPct">% Prod.</th>
+                <th>Expediente</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-operadores"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: DESCONEXIONES E INCIDENCIAS -->
+    <section class="tab-panel" id="tab-desconexiones">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">🔌 Huecos / Desconexiones Intra-Jornada Detectados</div>
+            <div class="card-subtitle">Intervalos sin registro entre dos sesiones consecutivas del mismo operador dentro de la misma jornada (hasta 5 horas).</div>
+          </div>
+          <div class="pills-row" id="gap-sev-pills">
+            <button class="pill-btn active" data-sev="ALL">Todos</button>
+            <button class="pill-btn" data-sev="CRITICO">🔴 Crítico (≥60m)</button>
+            <button class="pill-btn" data-sev="ALTO">🟠 Alto (15-59m)</button>
+            <button class="pill-btn" data-sev="MODERADO">🟡 Moderado (5-14m)</button>
+            <button class="pill-btn" data-sev="BREVE">⚪ Breve (1-4m)</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Operador</th>
+                <th>Servicio / Turno</th>
+                <th>Desconexión</th>
+                <th>Reconexión</th>
+                <th class="num">Duración Hueco</th>
+                <th>Severidad</th>
+                <th>Contexto (Antes → Después)</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-gaps"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🛠️ Motivos No Productivos</div>
+              <div class="card-subtitle">Distribución de tiempo no productivo registrado en H. Jornada</div>
+            </div>
+          </div>
+          <div class="bar-list" id="motivos-bars"></div>
+          <div class="table-wrap" style="max-height:280px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Motivo</th>
+                  <th class="num">Eventos</th>
+                  <th class="num">Agentes</th>
+                  <th class="num">Tiempo Total</th>
+                  <th class="num">%</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-motivos"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🚨 Alertas de Cierre y Anomalías</div>
+              <div class="card-subtitle">Sesiones sin cerrar (NO), olvidos de cierre (&gt;12h) y salidas tardías (&gt;10m)</div>
+            </div>
+            <div class="pills-row" id="anom-pills">
+              <button class="pill-btn active" data-anom="ALL">Todas</button>
+              <button class="pill-btn" data-anom="OPEN">Sin Cerrar</button>
+              <button class="pill-btn" data-anom="LONG">&gt; 12h</button>
+              <button class="pill-btn" data-anom="LATE">Tardía &gt;10m</button>
+            </div>
+          </div>
+          <div class="table-wrap" style="max-height:420px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Alerta</th>
+                  <th>Operador</th>
+                  <th>Conexión</th>
+                  <th>Desconexión</th>
+                  <th class="num">Horas</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="tbody-anoms"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: EVOLUCION DIARIA & RANKINGS -->
+    <section class="tab-panel" id="tab-evolucion">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">📅 Evolución Diaria de Horas y Desconexiones</div>
+            <div class="card-subtitle">Haz clic en cualquier barra o fila de fecha para filtrar todo el dashboard por ese día.</div>
+          </div>
+        </div>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--green);"></span>Productivo</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--blue);"></span>No Productivo</span>
+          <span class="legend-item"><span class="legend-swatch swatch-gap"></span>Huecos / Desconexiones</span>
+        </div>
+        <div class="chart-box">
+          <div class="daily-chart" id="daily-chart"></div>
+        </div>
+        <div class="table-wrap" style="max-height:360px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th class="num">Operadores</th>
+                <th class="num">Registros</th>
+                <th class="num">Productivo</th>
+                <th class="num">No Productivo</th>
+                <th class="num">Equipo/Red</th>
+                <th class="num">Huecos (Cant / Tiempo)</th>
+                <th class="num">Sin Cerrar</th>
+                <th class="num">% Productividad</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-daily"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🔌 Top 10 · Mayor Tiempo en Huecos / Desconexiones</div>
+          </div>
+          <div class="bar-list" id="rank-gaps"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">💻 Top 10 · Problemas de Equipo / Red</div>
+          </div>
+          <div class="bar-list" id="rank-tech"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">⏳ Top 10 · Tiempo No Pagable Post-Turno</div>
+          </div>
+          <div class="bar-list" id="rank-post"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🏆 Top 10 · Mayor Tiempo Productivo</div>
+          </div>
+          <div class="bar-list" id="rank-prod"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: REGISTROS DETALLADOS -->
+    <section class="tab-panel" id="tab-registros">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">📋 Bitácora Completa de Registros</div>
+            <div class="card-subtitle">Consulta y audita observaciones, ediciones de supervisor y estado de cierre.</div>
+          </div>
+          <div class="pills-row">
+            <select id="log-tipo" class="filter-select" style="padding:5px 9px;font-size:12px;">
+              <option value="ALL">Tipo: Todos</option>
+              <option value="H. Jornada">H. Jornada</option>
+              <option value="H. No Pagables">H. No Pagables</option>
+            </select>
+            <select id="log-motivo" class="filter-select" style="padding:5px 9px;font-size:12px;">
+              <option value="ALL">Motivo: Todos</option>
+              <option value="__ONLY_NOPROD__">Solo con motivo no productivo</option>
+            </select>
+            <select id="log-cerrado" class="filter-select" style="padding:5px 9px;font-size:12px;">
+              <option value="ALL">Cerrado: Todos</option>
+              <option value="SI">Cerrado: SI</option>
+              <option value="NO">Cerrado: NO</option>
+            </select>
+            <select id="log-page-size" class="filter-select" style="padding:5px 9px;font-size:12px;">
+              <option value="50">50 / pág</option>
+              <option value="100" selected>100 / pág</option>
+              <option value="250">250 / pág</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Operador</th>
+                <th>Tipo / SubTipo</th>
+                <th>Servicio</th>
+                <th>Motivo No Prod.</th>
+                <th>Conexión</th>
+                <th>Desconexión</th>
+                <th class="num">Horas</th>
+                <th>Cerrado</th>
+                <th>Observaciones</th>
+                <th>Editado por</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-logs"></tbody>
+          </table>
+        </div>
+        <div class="pagination-bar">
+          <span id="log-page-info">Mostrando 0 de 0</span>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-sm" id="btn-prev-page">← Anterior</button>
+            <button class="btn btn-sm" id="btn-next-page">Siguiente →</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL: EXPEDIENTE DEL OPERADOR -->
+  <div class="modal-backdrop" id="op-modal" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h2 id="m-title">Expediente del Operador</h2>
+          <div class="modal-meta" id="m-meta"></div>
+        </div>
+        <button class="modal-close" id="btn-close-modal" title="Cerrar">✕</button>
+      </div>
+      <div class="modal-body" id="m-body"></div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      'use strict';
+
+      const STORAGE_KEY = 'horas_presenciales_v1_data';
+      const META_KEY = 'horas_presenciales_v1_meta';
+
+      // Application state
+      const state = {
+        rawRecords: [],
+        meta: { source: 'Sin datos', updatedAt: '' },
+        filters: {
+          search: '',
+          fecha: 'ALL',
+          turno: 'ALL',
+          servicio: 'ALL',
+          minGap: 5,
+          hideBreaks: false,
+          onlyAlerts: false,
+          gapSev: 'ALL',
+          anomType: 'ALL',
+          logTipo: 'ALL',
+          logMotivo: 'ALL',
+          logCerrado: 'ALL',
+          logPage: 1,
+          logPageSize: 100
+        },
+        sort: { col: 'gapMin', dir: 'desc' },
+        computed: {
+          filteredRecords: [],
+          operators: [],
+          gaps: [],
+          motivos: [],
+          anomalies: [],
+          daily: []
+        }
+      };
+
+      // DOM helpers
+      const $ = id => document.getElementById(id);
+
+      function showBanner(msg, type = 'info') {
+        const el = $('status-banner');
+        el.className = 'show ' + type;
+        $('status-text').textContent = msg;
+      }
+      function hideBanner() {
+        $('status-banner').className = '';
+      }
+
+      function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function fmtHM(totalMinutes) {
+        const mins = Math.max(0, Math.round(totalMinutes || 0));
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        return `${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m`;
+      }
+
+      function fmtHMShort(totalMinutes) {
+        const mins = Math.max(0, Math.round(totalMinutes || 0));
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        if (h === 0) return `${m}m`;
+        return `${h}h ${String(m).padStart(2, '0')}m`;
+      }
+
+      function fmtClock(totalMinutes) {
+        const mins = Math.max(0, Math.round(totalMinutes || 0));
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      }
+
+      function normalizeKey(str) {
+        return String(str || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, ' ')
+          .trim();
+      }
+
+      // Parse date strings like "23/11/2026 15:00", "23/11/2026 15:00:54", "2026-11-23 15:00"
+      function parseDateTime(val) {
+        if (val === null || val === undefined || val === '') return null;
+        if (val instanceof Date && !isNaN(val.getTime())) return val;
+        if (typeof val === 'number' && val > 25000 && val < 90000) {
+          // Excel serial date
+          const utcDays = Math.floor(val - 25569);
+          const frac = val - Math.floor(val);
+          const totalSec = Math.round(frac * 86400);
+          const d = new Date(utcDays * 86400 * 1000);
+          return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), Math.floor(totalSec / 3600), Math.floor((totalSec % 3600) / 60), totalSec % 60);
+        }
+        const s = String(val).trim();
+        if (!s) return null;
+
+        // DD/MM/YYYY HH:MM(:SS)
+        let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+        if (m) {
+          let p1 = parseInt(m[1], 10);
+          let p2 = parseInt(m[2], 10);
+          let yr = parseInt(m[3], 10);
+          if (yr < 100) yr += 2000;
+          // Standard format in dataset is DD/MM/YYYY; if p2 > 12 swap
+          let day = p1, mon = p2;
+          if (mon > 12 && day <= 12) { const tmp = day; day = mon; mon = tmp; }
+          const hh = m[4] ? parseInt(m[4], 10) : 0;
+          const mm = m[5] ? parseInt(m[5], 10) : 0;
+          const ss = m[6] ? parseInt(m[6], 10) : 0;
+          const dt = new Date(yr, mon - 1, day, hh, mm, ss);
+          return isNaN(dt.getTime()) ? null : dt;
+        }
+
+        // YYYY-MM-DD HH:MM(:SS)
+        m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+        if (m) {
+          const dt = new Date(
+            parseInt(m[1], 10),
+            parseInt(m[2], 10) - 1,
+            parseInt(m[3], 10),
+            m[4] ? parseInt(m[4], 10) : 0,
+            m[5] ? parseInt(m[5], 10) : 0,
+            m[6] ? parseInt(m[6], 10) : 0
+          );
+          return isNaN(dt.getTime()) ? null : dt;
+        }
+        return null;
+      }
+
+      function formatDateKey(dt) {
+        if (!dt) return '';
+        return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()}`;
+      }
+
+      function dateKeyToSort(dk) {
+        if (!dk) return 0;
+        const p = dk.split('/');
+        if (p.length !== 3) return 0;
+        return parseInt(p[2], 10) * 10000 + parseInt(p[1], 10) * 100 + parseInt(p[0], 10);
+      }
+
+      function formatDateTimeShort(dt) {
+        if (!dt) return '';
+        return `${formatDateKey(dt)} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+      }
+
+      function formatTimeOnly(dt) {
+        if (!dt) return '';
+        return `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+      }
+
+      function parseDurationMinutes(horasVal, startDt, endDt) {
+        if (horasVal !== null && horasVal !== undefined && horasVal !== '') {
+          if (typeof horasVal === 'number' && horasVal >= 0 && horasVal < 10) {
+            return Math.round(horasVal * 1440);
+          }
+          const s = String(horasVal).trim();
+          const m = s.match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+          if (m) {
+            return parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + Math.round((parseInt(m[3] || '0', 10)) / 60);
+          }
+        }
+        if (startDt && endDt && endDt.getTime() >= startDt.getTime()) {
+          return Math.round((endDt.getTime() - startDt.getTime()) / 60000);
+        }
+        return 0;
+      }
+
+      // RFC-4180 compliant CSV parser (supports multiline quoted fields, escaped quotes, BOM, auto-delimiter)
+      function parseCSV(text) {
+        const clean = text.replace(/^\uFEFF/, '');
+        // Detect delimiter from first line outside quotes
+        const firstLine = clean.split(/\r?\n/)[0] || '';
+        const commaCount = (firstLine.match(/,/g) || []).length;
+        const semiCount = (firstLine.match(/;/g) || []).length;
+        const delim = semiCount > commaCount ? ';' : ',';
+
+        const rows = [];
+        let row = [];
+        let field = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < clean.length; i++) {
+          const ch = clean[i];
+          if (inQuotes) {
+            if (ch === '"') {
+              if (clean[i + 1] === '"') {
+                field += '"';
+                i++;
+              } else {
+                inQuotes = false;
+              }
+            } else {
+              field += ch;
+            }
+          } else {
+            if (ch === '"') {
+              inQuotes = true;
+            } else if (ch === delim) {
+              row.push(field);
+              field = '';
+            } else if (ch === '\r') {
+              if (clean[i + 1] === '\n') i++;
+              row.push(field);
+              rows.push(row);
+              row = [];
+              field = '';
+            } else if (ch === '\n') {
+              row.push(field);
+              rows.push(row);
+              row = [];
+              field = '';
+            } else {
+              field += ch;
+            }
+          }
+        }
+        if (field.length > 0 || row.length > 0) {
+          row.push(field);
+          rows.push(row);
+        }
+        return rows.filter(r => r.some(c => String(c).trim() !== ''));
+      }
+
+      // Map 2D matrix (from CSV or SheetJS) to structured records
+      function matrixToRecords(matrix) {
+        if (!matrix || matrix.length < 2) return [];
+
+        // Find header row (looks for Usuario + Conexion/Desconexion)
+        let headerIdx = 0;
+        for (let i = 0; i < Math.min(15, matrix.length); i++) {
+          const normRow = matrix[i].map(normalizeKey);
+          if (normRow.includes('usuario') && (normRow.includes('conexion') || normRow.includes('horas'))) {
+            headerIdx = i;
+            break;
+          }
+        }
+
+        const headers = matrix[headerIdx].map(normalizeKey);
+        const colIdx = (aliases) => {
+          for (const a of aliases) {
+            const idx = headers.indexOf(a);
+            if (idx !== -1) return idx;
+          }
+          return -1;
+        };
+
+        const map = {
+          usuario: colIdx(['usuario', 'id usuario', 'id']),
+          matricula: colIdx(['matricula', 'codigo', 'legajo']),
+          nombre: colIdx(['nombre', 'nombres']),
+          apellidos: colIdx(['apellidos', 'apellido']),
+          dni: colIdx(['dni', 'documento']),
+          tipo: colIdx(['tipo']),
+          subTipo: colIdx(['subtipo', 'sub tipo', 'turno']),
+          servicio: colIdx(['servicio', 'campana']),
+          tarea: colIdx(['tarea']),
+          motivo: colIdx(['motivo no productivo', 'motivo']),
+          obs: colIdx(['observaciones', 'observacion', 'comentarios']),
+          conexion: colIdx(['conexion', 'inicio', 'hora inicio']),
+          desconexion: colIdx(['desconexion', 'fin', 'hora fin']),
+          horas: colIdx(['horas', 'duracion']),
+          cerrado: colIdx(['cerrado', 'estado']),
+          usuarioEdit: colIdx(['usuario edit', 'editado por']),
+          fechaEdit: colIdx(['fecha edit', 'fecha edicion'])
+        };
+
+        if (map.usuario === -1 && map.nombre === -1) return [];
+
+        const getVal = (row, idx) => (idx >= 0 && idx < row.length && row[idx] !== undefined && row[idx] !== null) ? String(row[idx]).trim() : '';
+
+        const records = [];
+        for (let i = headerIdx + 1; i < matrix.length; i++) {
+          const row = matrix[i];
+          if (!row || row.length === 0) continue;
+
+          const usuario = getVal(row, map.usuario);
+          const nombre = getVal(row, map.nombre).replace(/\s+/g, ' ');
+          const apellidos = getVal(row, map.apellidos).replace(/\s+/g, ' ');
+          const conexionRaw = getVal(row, map.conexion);
+          if (!usuario && !nombre && !conexionRaw) continue;
+
+          const desconexionRaw = getVal(row, map.desconexion);
+          const horasRaw = getVal(row, map.horas);
+          const startDt = parseDateTime(conexionRaw);
+          const endDt = parseDateTime(desconexionRaw);
+          const durationMin = parseDurationMinutes(horasRaw, startDt, endDt);
+
+          const tipo = getVal(row, map.tipo) || 'Sin Tipo';
+          const subTipo = getVal(row, map.subTipo) || 'Sin SubTipo';
+          const servicio = getVal(row, map.servicio) || '-';
+          const motivo = getVal(row, map.motivo);
+          const cerradoRaw = getVal(row, map.cerrado).toUpperCase();
+          const cerrado = cerradoRaw === 'NO' ? 'NO' : (cerradoRaw === 'SI' ? 'SI' : (desconexionRaw ? 'SI' : 'NO'));
+          const fecha = startDt ? formatDateKey(startDt) : (endDt ? formatDateKey(endDt) : '');
+
+          // Classify non-payable subtype (pre-shift vs post-shift vs other)
+          let noPagClass = '';
+          if (tipo === 'H. No Pagables') {
+            if (startDt && startDt.getMinutes() === 0) {
+              noPagClass = 'POST'; // starts right at :00 after shift ends
+            } else if (endDt && endDt.getMinutes() === 0 && durationMin <= 90) {
+              noPagClass = 'PRE';  // early login ending right at :00
+            } else {
+              noPagClass = 'OTHER';
+            }
+          }
+
+          const fullName = `${nombre} ${apellidos}`.trim() || `Usuario ${usuario}`;
+          const opKey = usuario || getVal(row, map.matricula) || fullName;
+
+          records.push({
+            opKey,
+            usuario,
+            matricula: getVal(row, map.matricula),
+            nombre,
+            apellidos,
+            fullName,
+            dni: getVal(row, map.dni),
+            tipo,
+            subTipo,
+            servicio,
+            tarea: getVal(row, map.tarea),
+            motivo,
+            obs: getVal(row, map.obs),
+            conexionStr: startDt ? formatDateTimeShort(startDt) : conexionRaw,
+            desconexionStr: endDt ? formatDateTimeShort(endDt) : desconexionRaw,
+            startMs: startDt ? startDt.getTime() : null,
+            endMs: endDt ? endDt.getTime() : null,
+            fecha,
+            fechaSort: dateKeyToSort(fecha),
+            horasStr: horasRaw || fmtClock(durationMin) + ':00',
+            durationMin,
+            cerrado,
+            usuarioEdit: getVal(row, map.usuarioEdit),
+            fechaEdit: getVal(row, map.fechaEdit),
+            noPagClass,
+            isProductive: tipo === 'H. Jornada' && !motivo,
+            isNonProd: tipo === 'H. Jornada' && !!motivo,
+            isTechIssue: /problema.*equipo|red|sistema|pc|caida/i.test(motivo),
+            isOpen: cerrado === 'NO' || !endDt,
+            isLongSession: durationMin > 720, // > 12h
+            isLateLogout: tipo === 'H. No Pagables' && noPagClass === 'POST' && durationMin > 10
+          });
+        }
+        return records;
+      }
+
+      function dedupKey(r) {
+        return [r.usuario, r.conexionStr, r.desconexionStr, r.tipo, r.subTipo, r.motivo, r.horasStr].join('|');
+      }
+
+      // Compute all analytics on currently filtered records
+      function recompute() {
+        const f = state.filters;
+        const q = normalizeKey(f.search);
+
+        // Step 1: Base filters on records (fecha, turno, servicio, search)
+        const filtered = state.rawRecords.filter(r => {
+          if (f.fecha !== 'ALL' && r.fecha !== f.fecha) return false;
+          if (f.turno !== 'ALL' && r.subTipo !== f.turno) return false;
+          if (f.servicio !== 'ALL' && r.servicio !== f.servicio) return false;
+          if (q) {
+            const hay = normalizeKey(`${r.usuario} ${r.matricula} ${r.fullName} ${r.dni} ${r.motivo} ${r.obs} ${r.servicio}`);
+            if (!hay.includes(q)) return false;
+          }
+          return true;
+        });
+
+        // Group by operator
+        const opMap = new Map();
+        for (const r of filtered) {
+          if (!opMap.has(r.opKey)) {
+            opMap.set(r.opKey, {
+              opKey: r.opKey,
+              usuario: r.usuario,
+              matricula: r.matricula,
+              fullName: r.fullName,
+              dni: r.dni,
+              servicios: new Set(),
+              turnos: new Set(),
+              diasSet: new Set(),
+              records: [],
+              prodMin: 0,
+              noProdMin: 0,
+              techMin: 0,
+              techCount: 0,
+              noPagMin: 0,
+              preNoPagMin: 0,
+              postNoPagMin: 0,
+              lateLogoutCount: 0,
+              openCount: 0,
+              longCount: 0,
+              gaps: [],
+              gapMin: 0,
+              gapCount: 0
+            });
+          }
+          const op = opMap.get(r.opKey);
+          op.records.push(r);
+          if (r.servicio && r.servicio !== '-') op.servicios.add(r.servicio);
+          if (r.subTipo) op.turnos.add(r.subTipo);
+          if (r.fecha) op.diasSet.add(r.fecha);
+
+          if (r.isProductive) op.prodMin += r.durationMin;
+          else if (r.isNonProd) {
+            op.noProdMin += r.durationMin;
+            if (r.isTechIssue) {
+              op.techMin += r.durationMin;
+              op.techCount++;
+            }
+          } else if (r.tipo === 'H. No Pagables') {
+            op.noPagMin += r.durationMin;
+            if (r.noPagClass === 'PRE') op.preNoPagMin += r.durationMin;
+            else if (r.noPagClass === 'POST') op.postNoPagMin += r.durationMin;
+          }
+
+          if (r.isOpen) op.openCount++;
+          if (r.isLongSession) op.longCount++;
+          if (r.isLateLogout) op.lateLogoutCount++;
+        }
+
+        // Step 2: Sweep-line intra-shift disconnection detection per operator
+        const allGaps = [];
+        const MAX_SHIFT_GAP_MIN = 300; // 5 hours max; larger gaps are rest between shifts
+
+        for (const op of opMap.values()) {
+          const timed = op.records
+            .filter(r => r.startMs !== null)
+            .slice()
+            .sort((a, b) => (a.startMs - b.startMs) || ((b.endMs || 0) - (a.endMs || 0)));
+
+          let maxEndMs = null;
+          let maxEndRec = null;
+
+          for (const rec of timed) {
+            if (maxEndMs !== null && rec.startMs > maxEndMs) {
+              const gapMin = Math.round((rec.startMs - maxEndMs) / 60000);
+              const isLikelyBreak = gapMin >= 40 && gapMin <= 65;
+
+              if (gapMin >= f.minGap && gapMin <= MAX_SHIFT_GAP_MIN && !(f.hideBreaks && isLikelyBreak)) {
+                let severity = 'BREVE';
+                if (gapMin >= 60) severity = 'CRITICO';
+                else if (gapMin >= 15) severity = 'ALTO';
+                else if (gapMin >= 5) severity = 'MODERADO';
+
+                const startD = new Date(maxEndMs);
+                const endD = new Date(rec.startMs);
+                const gapObj = {
+                  opKey: op.opKey,
+                  usuario: op.usuario,
+                  matricula: op.matricula,
+                  fullName: op.fullName,
+                  servicio: rec.servicio !== '-' ? rec.servicio : (maxEndRec.servicio || '-'),
+                  subTipo: rec.subTipo || maxEndRec.subTipo,
+                  fecha: formatDateKey(startD),
+                  fechaSort: dateKeyToSort(formatDateKey(startD)),
+                  startMs: maxEndMs,
+                  endMs: rec.startMs,
+                  fromStr: formatDateTimeShort(startD),
+                  toStr: formatDateTimeShort(endD),
+                  gapMin,
+                  severity,
+                  isLikelyBreak,
+                  prevContext: maxEndRec.motivo ? `${maxEndRec.tipo} (${maxEndRec.motivo})` : maxEndRec.tipo,
+                  nextContext: rec.motivo ? `${rec.tipo} (${rec.motivo})` : rec.tipo
+                };
+                op.gaps.push(gapObj);
+                op.gapMin += gapMin;
+                op.gapCount++;
+                allGaps.push(gapObj);
+              }
+            }
+            const effEnd = rec.endMs !== null ? rec.endMs : rec.startMs;
+            if (maxEndMs === null || effEnd > maxEndMs) {
+              maxEndMs = effEnd;
+              maxEndRec = rec;
+            }
+          }
+
+          op.dias = op.diasSet.size;
+          op.servicio = op.servicios.size ? [...op.servicios].join(', ') : '-';
+          op.turno = op.turnos.size ? [...op.turnos].join(' / ') : '-';
+          const jornadaTotal = op.prodMin + op.noProdMin;
+          op.prodPct = jornadaTotal > 0 ? (op.prodMin / jornadaTotal) * 100 : (op.noPagMin > 0 ? 0 : 100);
+          op.hasAlerts = op.gapCount > 0 || op.techCount > 0 || op.openCount > 0 || op.longCount > 0 || op.lateLogoutCount > 0;
+          op.alertScore = op.openCount * 50 + op.longCount * 40 + op.gapMin + op.techMin + op.lateLogoutCount * 10;
+        }
+
+        // Apply "Solo con alertas" filter
+        let operators = [...opMap.values()];
+        if (f.onlyAlerts) {
+          operators = operators.filter(o => o.hasAlerts);
+        }
+        const activeOpKeys = new Set(operators.map(o => o.opKey));
+        const finalRecords = f.onlyAlerts ? filtered.filter(r => activeOpKeys.has(r.opKey)) : filtered;
+        const finalGaps = (f.onlyAlerts ? allGaps.filter(g => activeOpKeys.has(g.opKey)) : allGaps)
+          .sort((a, b) => (b.fechaSort - a.fechaSort) || (b.gapMin - a.gapMin));
+
+        // Motivos breakdown
+        const motivoMap = new Map();
+        for (const r of finalRecords) {
+          if (!r.motivo) continue;
+          if (!motivoMap.has(r.motivo)) {
+            motivoMap.set(r.motivo, { motivo: r.motivo, count: 0, ops: new Set(), totalMin: 0 });
+          }
+          const m = motivoMap.get(r.motivo);
+          m.count++;
+          m.ops.add(r.opKey);
+          m.totalMin += r.durationMin;
+        }
+        const motivos = [...motivoMap.values()]
+          .map(m => ({ ...m, opCount: m.ops.size }))
+          .sort((a, b) => b.totalMin - a.totalMin);
+
+        // Anomalies list
+        const anomalies = [];
+        for (const r of finalRecords) {
+          if (r.isOpen) {
+            anomalies.push({ type: 'OPEN', label: 'Sin cerrar (NO)', badge: 'b-purple', priority: 1, rec: r });
+          }
+          if (r.isLongSession) {
+            anomalies.push({ type: 'LONG', label: `Sesión > 12h (${fmtHMShort(r.durationMin)})`, badge: 'b-red', priority: 2, rec: r });
+          }
+          if (r.isLateLogout) {
+            anomalies.push({ type: 'LATE', label: `Salida tardía (${fmtHMShort(r.durationMin)})`, badge: 'b-amber', priority: 3, rec: r });
+          }
+        }
+        anomalies.sort((a, b) => (a.priority - b.priority) || (b.rec.durationMin - a.rec.durationMin));
+
+        // Daily aggregation
+        const dailyMap = new Map();
+        for (const r of finalRecords) {
+          if (!r.fecha) continue;
+          if (!dailyMap.has(r.fecha)) {
+            dailyMap.set(r.fecha, {
+              fecha: r.fecha,
+              fechaSort: r.fechaSort,
+              ops: new Set(),
+              count: 0,
+              prodMin: 0,
+              noProdMin: 0,
+              techMin: 0,
+              gapCount: 0,
+              gapMin: 0,
+              openCount: 0
+            });
+          }
+          const d = dailyMap.get(r.fecha);
+          d.ops.add(r.opKey);
+          d.count++;
+          if (r.isProductive) d.prodMin += r.durationMin;
+          else if (r.isNonProd) {
+            d.noProdMin += r.durationMin;
+            if (r.isTechIssue) d.techMin += r.durationMin;
+          }
+          if (r.isOpen) d.openCount++;
+        }
+        for (const g of finalGaps) {
+          if (!dailyMap.has(g.fecha)) {
+            dailyMap.set(g.fecha, {
+              fecha: g.fecha,
+              fechaSort: g.fechaSort,
+              ops: new Set([g.opKey]),
+              count: 0, prodMin: 0, noProdMin: 0, techMin: 0, gapCount: 0, gapMin: 0, openCount: 0
+            });
+          }
+          const d = dailyMap.get(g.fecha);
+          d.gapCount++;
+          d.gapMin += g.gapMin;
+        }
+        const daily = [...dailyMap.values()]
+          .map(d => ({
+            ...d,
+            opCount: d.ops.size,
+            prodPct: (d.prodMin + d.noProdMin) > 0 ? (d.prodMin / (d.prodMin + d.noProdMin)) * 100 : 100
+          }))
+          .sort((a, b) => a.fechaSort - b.fechaSort);
+
+        state.computed = {
+          filteredRecords: finalRecords,
+          operators,
+          gaps: finalGaps,
+          motivos,
+          anomalies,
+          daily
+        };
+
+        renderAll();
+      }
+
+      function populateDynamicFilters() {
+        // Fechas
+        const dates = [...new Set(state.rawRecords.map(r => r.fecha).filter(Boolean))]
+          .sort((a, b) => dateKeyToSort(b) - dateKeyToSort(a));
+        const fFecha = $('f-fecha');
+        const prevFecha = fFecha.value;
+        fFecha.innerHTML = '<option value="ALL">Todas las fechas (' + dates.length + ' días)</option>' +
+          dates.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+        if (dates.includes(prevFecha)) fFecha.value = prevFecha;
+        else state.filters.fecha = 'ALL';
+
+        // Servicios
+        const servs = [...new Set(state.rawRecords.map(r => r.servicio).filter(Boolean))].sort();
+        const fServ = $('f-servicio');
+        const prevServ = fServ.value;
+        fServ.innerHTML = '<option value="ALL">Todos</option>' +
+          servs.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+        if (servs.includes(prevServ)) fServ.value = prevServ;
+        else state.filters.servicio = 'ALL';
+
+        // Motivos dropdown in logs tab
+        const mots = [...new Set(state.rawRecords.map(r => r.motivo).filter(Boolean))].sort();
+        const fMot = $('log-motivo');
+        fMot.innerHTML = '<option value="ALL">Motivo: Todos</option><option value="__ONLY_NOPROD__">Solo con motivo no productivo</option>' +
+          mots.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+      }
+
+      function renderAll() {
+        renderSourceInfo();
+        renderKPIs();
+        renderOperatorsTable();
+        renderGapsTab();
+        renderEvolutionTab();
+        renderLogsTab();
+      }
+
+      function renderSourceInfo() {
+        $('source-name').textContent = state.meta.source || 'Datos cargados';
+        const dates = [...new Set(state.rawRecords.map(r => r.fecha).filter(Boolean))]
+          .sort((a, b) => dateKeyToSort(a) - dateKeyToSort(b));
+        const range = dates.length ? `${dates[0]} → ${dates[dates.length - 1]}` : 'Sin fechas';
+        const totalOps = new Set(state.rawRecords.map(r => r.opKey)).size;
+        $('source-meta').innerHTML =
+          `<strong>${state.rawRecords.length.toLocaleString('es-PE')}</strong> registros · <strong>${totalOps}</strong> operadores · Rango: <strong>${escapeHtml(range)}</strong>` +
+          (state.meta.updatedAt ? ` · Actualizado: ${escapeHtml(state.meta.updatedAt)}` : '');
+      }
+
+      function renderKPIs() {
+        const { filteredRecords, operators, gaps, daily } = state.computed;
+
+        const prodMin = operators.reduce((s, o) => s + o.prodMin, 0);
+        const noProdMin = operators.reduce((s, o) => s + o.noProdMin, 0);
+        const techMin = operators.reduce((s, o) => s + o.techMin, 0);
+        const noProdEvents = filteredRecords.filter(r => r.isNonProd).length;
+        const noPagMin = operators.reduce((s, o) => s + o.noPagMin, 0);
+        const lateCount = operators.reduce((s, o) => s + o.lateLogoutCount, 0);
+        const openCount = operators.reduce((s, o) => s + o.openCount, 0);
+        const longCount = operators.reduce((s, o) => s + o.longCount, 0);
+        const gapMin = gaps.reduce((s, g) => s + g.gapMin, 0);
+        const gapOps = new Set(gaps.map(g => g.opKey)).size;
+        const jornada = prodMin + noProdMin;
+        const prodPct = jornada > 0 ? (prodMin / jornada) * 100 : 0;
+
+        $('kpi-ops').textContent = operators.length;
+        $('kpi-ops-sub').textContent = `${filteredRecords.length.toLocaleString('es-PE')} registros · ${daily.length} días`;
+
+        $('kpi-prod').textContent = fmtClock(prodMin) + 'h';
+        $('kpi-prod-sub').textContent = `${prodPct.toFixed(1)}% sobre H. Jornada`;
+
+        $('kpi-noprod').textContent = fmtClock(noProdMin) + 'h';
+        $('kpi-noprod-sub').textContent = `${noProdEvents} eventos · Equipo: ${fmtHMShort(techMin)}`;
+
+        $('kpi-gaps').textContent = fmtClock(gapMin) + 'h';
+        $('kpi-gaps-sub').textContent = `${gaps.length} huecos · ${gapOps} agentes`;
+
+        $('kpi-nopag').textContent = fmtClock(noPagMin) + 'h';
+        $('kpi-nopag-sub').textContent = `${lateCount} salidas tardías (>10m)`;
+
+        $('kpi-anoms').textContent = openCount + longCount;
+        $('kpi-anoms-sub').textContent = `${openCount} sin cerrar · ${longCount} sesiones >12h`;
+
+        $('badge-ops').textContent = operators.length;
+        $('badge-gaps').textContent = gaps.length;
+        $('badge-logs').textContent = filteredRecords.length;
+      }
+
+      function renderOperatorsTable() {
+        const { col, dir } = state.sort;
+        const mult = dir === 'asc' ? 1 : -1;
+        const list = state.computed.operators.slice().sort((a, b) => {
+          if (col === 'nombre') return a.fullName.localeCompare(b.fullName) * mult;
+          if (col === 'servicio') return a.servicio.localeCompare(b.servicio) * mult;
+          return ((a[col] || 0) - (b[col] || 0)) * mult;
+        });
+
+        // Update sort indicators
+        document.querySelectorAll('#tbl-operadores thead th.sortable').forEach(th => {
+          th.classList.remove('sorted-asc', 'sorted-desc');
+          if (th.dataset.sort === col) th.classList.add(dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+        });
+
+        $('ops-count-label').textContent = `Mostrando ${list.length} operador${list.length === 1 ? '' : 'es'}`;
+
+        const tbody = $('tbody-operadores');
+        if (!list.length) {
+          tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="icon">🔍</div>No hay operadores que coincidan con los filtros actuales.</div></td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = list.map(op => {
+          const alertsHtml = [];
+          if (op.openCount > 0) alertsHtml.push(`<span class="badge b-purple" title="Sesiones sin cerrar">Sin cerrar: ${op.openCount}</span>`);
+          if (op.longCount > 0) alertsHtml.push(`<span class="badge b-red" title="Sesiones mayores a 12h">&gt;12h: ${op.longCount}</span>`);
+          if (op.lateLogoutCount > 0) alertsHtml.push(`<span class="badge b-amber" title="Desconexiones post-turno mayores a 10m">Tardía: ${op.lateLogoutCount}</span>`);
+          if (!alertsHtml.length) alertsHtml.push(`<span class="badge b-green">OK</span>`);
+
+          const pctColor = op.prodPct >= 95 ? 'var(--green)' : (op.prodPct >= 88 ? 'var(--amber)' : 'var(--red)');
+          const gapBadge = op.gapCount > 0
+            ? `<span class="badge ${op.gapMin >= 60 ? 'b-red' : 'b-amber'}">${op.gapCount} · ${fmtHMShort(op.gapMin)}</span>`
+            : `<span style="color:var(--text-muted);">—</span>`;
+          const techHtml = op.techMin > 0
+            ? `<span class="badge b-red">${fmtHMShort(op.techMin)}</span>`
+            : `<span style="color:var(--text-muted);">—</span>`;
+
+          return `
+            <tr class="clickable" data-op="${escapeHtml(op.opKey)}">
+              <td>
+                <div style="font-weight:700;color:var(--text);">${escapeHtml(op.fullName)}</div>
+                <div class="mono" style="color:var(--text-muted);">${escapeHtml(op.usuario)}${op.matricula ? ' · ' + escapeHtml(op.matricula) : ''}</div>
+              </td>
+              <td>
+                <span class="badge b-blue">${escapeHtml(op.servicio)}</span>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml(op.turno)}</div>
+              </td>
+              <td class="num"><strong>${op.dias}</strong></td>
+              <td class="num" style="font-weight:700;color:var(--green-text);">${fmtHMShort(op.prodMin)}</td>
+              <td class="num">${op.noProdMin > 0 ? fmtHMShort(op.noProdMin) : '<span style="color:var(--text-muted);">—</span>'}</td>
+              <td class="num">${techHtml}</td>
+              <td class="num">${gapBadge}</td>
+              <td class="num">${op.postNoPagMin > 0 ? fmtHMShort(op.postNoPagMin) : '<span style="color:var(--text-muted);">—</span>'}</td>
+              <td><div style="display:flex;gap:4px;flex-wrap:wrap;">${alertsHtml.join('')}</div></td>
+              <td>
+                <div class="prog-wrap">
+                  <div class="prog-track"><div class="prog-fill" style="width:${Math.min(100, op.prodPct).toFixed(1)}%;background:${pctColor};"></div></div>
+                  <span style="font-size:12px;font-weight:700;min-width:42px;text-align:right;">${op.prodPct.toFixed(1)}%</span>
+                </div>
+              </td>
+              <td><button class="btn btn-sm" data-open-op="${escapeHtml(op.opKey)}">Ver detalle</button></td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      function renderGapsTab() {
+        const { gaps, motivos, anomalies } = state.computed;
+        const sevFilter = state.filters.gapSev;
+        const filteredGaps = sevFilter === 'ALL' ? gaps : gaps.filter(g => g.severity === sevFilter);
+
+        const sevBadge = {
+          CRITICO: '<span class="badge b-red">🔴 Crítico</span>',
+          ALTO: '<span class="badge b-amber">🟠 Alto</span>',
+          MODERADO: '<span class="badge b-blue">🟡 Moderado</span>',
+          BREVE: '<span class="badge b-gray">⚪ Breve</span>'
+        };
+
+        const tbodyGaps = $('tbody-gaps');
+        if (!filteredGaps.length) {
+          tbodyGaps.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="icon">✨</div>No se detectaron desconexiones intra-jornada con el umbral seleccionado.</div></td></tr>`;
+        } else {
+          tbodyGaps.innerHTML = filteredGaps.map(g => `
+            <tr class="clickable" data-op="${escapeHtml(g.opKey)}">
+              <td class="mono"><strong>${escapeHtml(g.fecha)}</strong></td>
+              <td>
+                <div style="font-weight:700;">${escapeHtml(g.fullName)}</div>
+                <div class="mono" style="color:var(--text-muted);">${escapeHtml(g.usuario)} · ${escapeHtml(g.matricula)}</div>
+              </td>
+              <td><span class="badge b-blue">${escapeHtml(g.servicio)}</span> <span style="font-size:11px;color:var(--text-muted);">${escapeHtml(g.subTipo)}</span></td>
+              <td class="mono">${escapeHtml(g.fromStr)}</td>
+              <td class="mono">${escapeHtml(g.toStr)}</td>
+              <td class="num"><strong style="color:var(--red-text);">${fmtHMShort(g.gapMin)}</strong>${g.isLikelyBreak ? ' <span class="badge b-gray" title="Duración típica de refrigerio">🍽️</span>' : ''}</td>
+              <td>${sevBadge[g.severity] || ''}</td>
+              <td style="font-size:12px;color:#475569;">${escapeHtml(g.prevContext)} → ${escapeHtml(g.nextContext)}</td>
+              <td><button class="btn btn-sm" data-open-op="${escapeHtml(g.opKey)}">Expediente</button></td>
+            </tr>
+          `).join('');
+        }
+
+        // Motivos bars & table
+        const totalNoProd = motivos.reduce((s, m) => s + m.totalMin, 0);
+        const maxMot = motivos.length ? motivos[0].totalMin : 1;
+        const barsEl = $('motivos-bars');
+        const tbodyMot = $('tbody-motivos');
+
+        if (!motivos.length) {
+          barsEl.innerHTML = `<div class="empty-state" style="padding:18px;">Sin registros no productivos en la selección actual.</div>`;
+          tbodyMot.innerHTML = '';
+        } else {
+          barsEl.innerHTML = motivos.map(m => {
+            const pct = totalNoProd > 0 ? (m.totalMin / totalNoProd) * 100 : 0;
+            const w = Math.max(4, (m.totalMin / maxMot) * 100);
+            const isTech = /problema.*equipo|red|sistema/i.test(m.motivo);
+            return `
+              <div class="bar-item">
+                <div class="bar-item-top">
+                  <span class="bar-item-name">${isTech ? '💻 ' : '📌 '}${escapeHtml(m.motivo)}</span>
+                  <span class="bar-item-val">${fmtHMShort(m.totalMin)} (${pct.toFixed(1)}%)</span>
+                </div>
+                <div class="bar-bg"><div class="bar-fg" style="width:${w}%;background:${isTech ? 'var(--red)' : 'var(--blue)'};"></div></div>
+              </div>
+            `;
+          }).join('');
+
+          tbodyMot.innerHTML = motivos.map(m => {
+            const pct = totalNoProd > 0 ? (m.totalMin / totalNoProd) * 100 : 0;
+            return `
+              <tr>
+                <td><strong>${escapeHtml(m.motivo)}</strong></td>
+                <td class="num">${m.count}</td>
+                <td class="num">${m.opCount}</td>
+                <td class="num"><strong>${fmtHMShort(m.totalMin)}</strong></td>
+                <td class="num">${pct.toFixed(1)}%</td>
+              </tr>
+            `;
+          }).join('');
+        }
+
+        // Anomalies table
+        const aType = state.filters.anomType;
+        const filteredAnoms = aType === 'ALL' ? anomalies : anomalies.filter(a => a.type === aType);
+        const tbodyAnoms = $('tbody-anoms');
+        if (!filteredAnoms.length) {
+          tbodyAnoms.innerHTML = `<tr><td colspan="6"><div class="empty-state" style="padding:24px;">✅ Sin alertas de cierre en esta vista.</div></td></tr>`;
+        } else {
+          tbodyAnoms.innerHTML = filteredAnoms.map(a => `
+            <tr class="clickable" data-op="${escapeHtml(a.rec.opKey)}">
+              <td><span class="badge ${a.badge}">${escapeHtml(a.label)}</span></td>
+              <td>
+                <div style="font-weight:700;">${escapeHtml(a.rec.fullName)}</div>
+                <div class="mono" style="color:var(--text-muted);">${escapeHtml(a.rec.usuario)}</div>
+              </td>
+              <td class="mono">${escapeHtml(a.rec.conexionStr)}</td>
+              <td class="mono">${escapeHtml(a.rec.desconexionStr || '— ABIERTA —')}</td>
+              <td class="num"><strong>${fmtHMShort(a.rec.durationMin)}</strong></td>
+              <td><button class="btn btn-sm" data-open-op="${escapeHtml(a.rec.opKey)}">Ver</button></td>
+            </tr>
+          `).join('');
+        }
+      }
+
+      function renderEvolutionTab() {
+        const { daily, operators } = state.computed;
+        const chartEl = $('daily-chart');
+        const tbodyDaily = $('tbody-daily');
+
+        if (!daily.length) {
+          chartEl.innerHTML = `<div class="empty-state" style="width:100%;">Sin datos diarios para graficar.</div>`;
+          tbodyDaily.innerHTML = '';
+        } else {
+          const maxTotal = Math.max(1, ...daily.map(d => d.prodMin + d.noProdMin + d.gapMin));
+          chartEl.innerHTML = daily.map(d => {
+            const total = d.prodMin + d.noProdMin + d.gapMin;
+            const hProd = (d.prodMin / maxTotal) * 100;
+            const hNoProd = (d.noProdMin / maxTotal) * 100;
+            const hGap = (d.gapMin / maxTotal) * 100;
+            const shortDate = d.fecha.slice(0, 5);
+            return `
+              <div class="day-col" data-pick-date="${escapeHtml(d.fecha)}" title="${escapeHtml(d.fecha)} · Productivo: ${fmtHMShort(d.prodMin)} | No Prod: ${fmtHMShort(d.noProdMin)} | Huecos: ${fmtHMShort(d.gapMin)} (${d.gapCount})">
+                <div class="day-total">${Math.round(total / 60)}h</div>
+                <div class="day-bar-wrap">
+                  <div class="day-seg" style="height:${hProd}%;background:var(--green);"></div>
+                  <div class="day-seg" style="height:${hNoProd}%;background:var(--blue);"></div>
+                  <div class="day-seg" style="height:${hGap}%;background:repeating-linear-gradient(45deg,#f43f5e,#f43f5e 4px,#fecdd3 4px,#fecdd3 8px);"></div>
+                </div>
+                <div class="day-label">${escapeHtml(shortDate)}</div>
+              </div>
+            `;
+          }).join('');
+
+          tbodyDaily.innerHTML = daily.slice().reverse().map(d => `
+            <tr class="clickable" data-pick-date="${escapeHtml(d.fecha)}">
+              <td class="mono"><strong>${escapeHtml(d.fecha)}</strong></td>
+              <td class="num">${d.opCount}</td>
+              <td class="num">${d.count}</td>
+              <td class="num" style="font-weight:700;color:var(--green-text);">${fmtHMShort(d.prodMin)}</td>
+              <td class="num">${fmtHMShort(d.noProdMin)}</td>
+              <td class="num">${d.techMin > 0 ? `<span class="badge b-red">${fmtHMShort(d.techMin)}</span>` : '—'}</td>
+              <td class="num">${d.gapCount > 0 ? `<span class="badge b-amber">${d.gapCount} · ${fmtHMShort(d.gapMin)}</span>` : '—'}</td>
+              <td class="num">${d.openCount > 0 ? `<span class="badge b-purple">${d.openCount}</span>` : '—'}</td>
+              <td class="num"><strong>${d.prodPct.toFixed(1)}%</strong></td>
+            </tr>
+          `).join('');
+        }
+
+        // Render Top 10 rankings helper
+        const renderRank = (elId, items, valueFn, labelFn, color) => {
+          const el = $(elId);
+          const filtered = items.filter(o => valueFn(o) > 0).sort((a, b) => valueFn(b) - valueFn(a)).slice(0, 10);
+          if (!filtered.length) {
+            el.innerHTML = `<div class="empty-state" style="padding:18px;">Sin registros en esta métrica.</div>`;
+            return;
+          }
+          const maxV = Math.max(1, valueFn(filtered[0]));
+          el.innerHTML = filtered.map((op, i) => {
+            const v = valueFn(op);
+            const w = Math.max(4, (v / maxV) * 100);
+            return `
+              <div class="bar-item" style="cursor:pointer;" data-op="${escapeHtml(op.opKey)}">
+                <div class="bar-item-top">
+                  <span class="bar-item-name"><strong>#${i + 1}</strong> ${escapeHtml(op.fullName)} <span class="mono" style="color:var(--text-muted);">(${escapeHtml(op.usuario)})</span></span>
+                  <span class="bar-item-val">${escapeHtml(labelFn(op))}</span>
+                </div>
+                <div class="bar-bg"><div class="bar-fg" style="width:${w}%;background:${color};"></div></div>
+              </div>
+            `;
+          }).join('');
+        };
+
+        renderRank('rank-gaps', operators, o => o.gapMin, o => `${fmtHMShort(o.gapMin)} (${o.gapCount})`, 'var(--red)');
+        renderRank('rank-tech', operators, o => o.techMin, o => `${fmtHMShort(o.techMin)} (${o.techCount})`, '#e11d48');
+        renderRank('rank-post', operators, o => o.postNoPagMin, o => `${fmtHMShort(o.postNoPagMin)}`, 'var(--amber)');
+        renderRank('rank-prod', operators, o => o.prodMin, o => `${fmtHMShort(o.prodMin)} (${o.dias}d)`, 'var(--green)');
+      }
+
+      function renderLogsTab() {
+        const f = state.filters;
+        const rows = state.computed.filteredRecords.filter(r => {
+          if (f.logTipo !== 'ALL' && r.tipo !== f.logTipo) return false;
+          if (f.logMotivo === '__ONLY_NOPROD__' && !r.motivo) return false;
+          if (f.logMotivo !== 'ALL' && f.logMotivo !== '__ONLY_NOPROD__' && r.motivo !== f.logMotivo) return false;
+          if (f.logCerrado !== 'ALL' && r.cerrado !== f.logCerrado) return false;
+          return true;
+        });
+
+        const total = rows.length;
+        const totalPages = Math.max(1, Math.ceil(total / f.logPageSize));
+        if (f.logPage > totalPages) f.logPage = totalPages;
+        const start = (f.logPage - 1) * f.logPageSize;
+        const pageRows = rows.slice(start, start + f.logPageSize);
+
+        $('log-page-info').textContent = total
+          ? `Mostrando ${start + 1}–${Math.min(start + f.logPageSize, total)} de ${total.toLocaleString('es-PE')} registros (Pág. ${f.logPage}/${totalPages})`
+          : '0 registros';
+        $('btn-prev-page').disabled = f.logPage <= 1;
+        $('btn-next-page').disabled = f.logPage >= totalPages;
+
+        const tbody = $('tbody-logs');
+        if (!pageRows.length) {
+          tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">No hay registros para mostrar.</div></td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = pageRows.map(r => {
+          const tipoBadge = r.isProductive
+            ? '<span class="badge b-green">Productivo</span>'
+            : (r.isTechIssue ? '<span class="badge b-red">Equipo/Red</span>'
+              : (r.isNonProd ? '<span class="badge b-blue">No Prod.</span>' : '<span class="badge b-gray">No Pagable</span>'));
+          const cerBadge = r.cerrado === 'NO'
+            ? '<span class="badge b-purple">NO</span>'
+            : '<span class="badge b-green">SI</span>';
+          return `
+            <tr class="clickable" data-op="${escapeHtml(r.opKey)}">
+              <td>
+                <div style="font-weight:600;">${escapeHtml(r.fullName)}</div>
+                <div class="mono" style="color:var(--text-muted);">${escapeHtml(r.usuario)} · ${escapeHtml(r.matricula)}</div>
+              </td>
+              <td>${tipoBadge}<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml(r.subTipo)}</div></td>
+              <td>${escapeHtml(r.servicio)}</td>
+              <td>${r.motivo ? `<span class="badge ${r.isTechIssue ? 'b-red' : 'b-blue'}">${escapeHtml(r.motivo)}</span>` : '—'}</td>
+              <td class="mono">${escapeHtml(r.conexionStr)}</td>
+              <td class="mono">${escapeHtml(r.desconexionStr || '—')}</td>
+              <td class="num"><strong>${escapeHtml(r.horasStr)}</strong></td>
+              <td>${cerBadge}</td>
+              <td class="obs-cell">${escapeHtml(r.obs || '—')}</td>
+              <td class="mono" style="color:var(--text-muted);">${escapeHtml(r.usuarioEdit || '—')}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      // MODAL: OPERATOR DETAIL & VISUAL DAILY TIMELINE
+      function openOperatorModal(opKey) {
+        const op = state.computed.operators.find(o => o.opKey === opKey);
+        if (!op) return;
+
+        $('m-title').textContent = `${op.fullName}`;
+        $('m-meta').textContent = `Usuario: ${op.usuario || '—'} · Matrícula: ${op.matricula || '—'} · DNI: ${op.dni || '—'} · Servicio: ${op.servicio} · Turno: ${op.turno}`;
+
+        // Build per-day timeline buckets (handles overnight segments cleanly)
+        const dayMap = new Map();
+        const ensureDay = (dateKey) => {
+          if (!dayMap.has(dateKey)) dayMap.set(dateKey, { dateKey, sort: dateKeyToSort(dateKey), segs: [] });
+          return dayMap.get(dateKey);
+        };
+
+        const addTimedSegment = (startMs, endMs, cls, tooltip) => {
+          if (startMs === null) return;
+          const effEnd = (endMs !== null && endMs > startMs) ? endMs : (startMs + 15 * 60000);
+          let cursor = startMs;
+          let safety = 0;
+          while (cursor < effEnd && safety < 4) {
+            safety++;
+            const d = new Date(cursor);
+            const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0).getTime();
+            const dayEnd = dayStart + 86400000;
+            const segEnd = Math.min(effEnd, dayEnd);
+            const leftPct = ((cursor - dayStart) / 86400000) * 100;
+            const widthPct = Math.max(0.4, ((segEnd - cursor) / 86400000) * 100);
+            ensureDay(formatDateKey(d)).segs.push({ leftPct, widthPct, cls, tooltip });
+            cursor = segEnd;
+          }
+        };
+
+        for (const r of op.records) {
+          let cls = 'tl-nopag';
+          if (r.isProductive) cls = 'tl-prod';
+          else if (r.isTechIssue) cls = 'tl-tech';
+          else if (r.isNonProd) cls = 'tl-noprod';
+          const tip = `${r.tipo}${r.motivo ? ' · ' + r.motivo : ''} | ${r.conexionStr} → ${r.desconexionStr || 'ABIERTA'} (${fmtHMShort(r.durationMin)})${r.obs ? ' | Obs: ' + r.obs.replace(/\n/g, ' ') : ''}`;
+          addTimedSegment(r.startMs, r.endMs, cls, tip);
+        }
+        for (const g of op.gaps) {
+          const tip = `🔌 HUECO / DESCONEXIÓN: ${g.fromStr} → ${g.toStr} (${fmtHMShort(g.gapMin)})`;
+          addTimedSegment(g.startMs, g.endMs, 'tl-gap', tip);
+        }
+
+        const daysList = [...dayMap.values()].sort((a, b) => b.sort - a.sort);
+        const timelineHtml = daysList.map(d => `
+          <div class="timeline-row">
+            <div class="timeline-date mono">${escapeHtml(d.dateKey)}</div>
+            <div class="timeline-track">
+              ${d.segs.map(s => `<div class="tl-seg ${s.cls}" style="left:${s.leftPct.toFixed(2)}%;width:${s.widthPct.toFixed(2)}%;" title="${escapeHtml(s.tooltip)}"></div>`).join('')}
+            </div>
+          </div>
+        `).join('');
+
+        const gapsHtml = op.gaps.length
+          ? `<div class="table-wrap" style="max-height:220px;">
+              <table>
+                <thead><tr><th>Fecha</th><th>Desconexión</th><th>Reconexión</th><th class="num">Duración</th><th>Contexto</th></tr></thead>
+                <tbody>
+                  ${op.gaps.slice().sort((a, b) => b.startMs - a.startMs).map(g => `
+                    <tr>
+                      <td class="mono">${escapeHtml(g.fecha)}</td>
+                      <td class="mono">${escapeHtml(g.fromStr)}</td>
+                      <td class="mono">${escapeHtml(g.toStr)}</td>
+                      <td class="num"><span class="badge ${g.gapMin >= 60 ? 'b-red' : 'b-amber'}">${fmtHMShort(g.gapMin)}</span></td>
+                      <td style="font-size:12px;">${escapeHtml(g.prevContext)} → ${escapeHtml(g.nextContext)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>`
+          : `<div style="padding:12px;font-size:13px;color:var(--green-text);background:var(--green-soft);border-radius:8px;">✅ No se registran desconexiones intra-jornada con el umbral actual (≥ ${state.filters.minGap} min).</div>`;
+
+        const sortedRecs = op.records.slice().sort((a, b) => (b.startMs || 0) - (a.startMs || 0));
+
+        $('m-body').innerHTML = `
+          <div class="mini-kpi-grid">
+            <div class="mini-kpi">
+              <div class="mini-kpi-label">Productivo (${op.prodPct.toFixed(1)}%)</div>
+              <div class="mini-kpi-val" style="color:var(--green-text);">${fmtHMShort(op.prodMin)}</div>
+            </div>
+            <div class="mini-kpi">
+              <div class="mini-kpi-label">No Productivo</div>
+              <div class="mini-kpi-val" style="color:var(--blue-text);">${fmtHMShort(op.noProdMin)}</div>
+            </div>
+            <div class="mini-kpi">
+              <div class="mini-kpi-label">Equipo / Red</div>
+              <div class="mini-kpi-val" style="color:var(--red-text);">${fmtHMShort(op.techMin)}</div>
+            </div>
+            <div class="mini-kpi">
+              <div class="mini-kpi-label">Huecos (${op.gapCount})</div>
+              <div class="mini-kpi-val" style="color:var(--red-text);">${fmtHMShort(op.gapMin)}</div>
+            </div>
+            <div class="mini-kpi">
+              <div class="mini-kpi-label">Post-Turno / Alertas</div>
+              <div class="mini-kpi-val" style="color:var(--amber-text);">${fmtHMShort(op.postNoPagMin)}</div>
+            </div>
+          </div>
+
+          <div class="timeline-box">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+              <strong style="font-size:13.5px;">🕒 Línea de Tiempo Diaria (00:00 – 24:00)</strong>
+              <div class="legend" style="padding:0;gap:12px;font-size:11.5px;">
+                <span class="legend-item"><span class="legend-swatch" style="background:#10b981;"></span>Productivo</span>
+                <span class="legend-item"><span class="legend-swatch" style="background:#ef4444;"></span>Equipo/Red</span>
+                <span class="legend-item"><span class="legend-swatch" style="background:#3b82f6;"></span>Feedback/Formación</span>
+                <span class="legend-item"><span class="legend-swatch swatch-gap"></span>Hueco</span>
+                <span class="legend-item"><span class="legend-swatch" style="background:#94a3b8;"></span>No Pagable</span>
+              </div>
+            </div>
+            <div class="timeline-axis">
+              <span>00h</span><span>03h</span><span>06h</span><span>09h</span><span>12h</span><span>15h</span><span>18h</span><span>21h</span><span>24h</span>
+            </div>
+            ${timelineHtml || '<div style="font-size:12px;color:var(--text-muted);">Sin marcas horarias para graficar.</div>'}
+          </div>
+
+          <div>
+            <h3 style="font-size:14px;margin-bottom:8px;">🔌 Desconexiones Intra-Jornada (${op.gaps.length})</h3>
+            ${gapsHtml}
+          </div>
+
+          <div>
+            <h3 style="font-size:14px;margin-bottom:8px;">📋 Historial de Registros (${sortedRecs.length})</h3>
+            <div class="table-wrap" style="max-height:300px;border:1px solid var(--border);border-radius:8px;">
+              <table>
+                <thead>
+                  <tr><th>Tipo</th><th>Motivo</th><th>Conexión</th><th>Desconexión</th><th class="num">Horas</th><th>Cerrado</th><th>Observaciones</th><th>Edit</th></tr>
+                </thead>
+                <tbody>
+                  ${sortedRecs.map(r => `
+                    <tr>
+                      <td><strong>${escapeHtml(r.tipo)}</strong><div style="font-size:11px;color:var(--text-muted);">${escapeHtml(r.subTipo)}</div></td>
+                      <td>${r.motivo ? `<span class="badge ${r.isTechIssue ? 'b-red' : 'b-blue'}">${escapeHtml(r.motivo)}</span>` : '—'}</td>
+                      <td class="mono">${escapeHtml(r.conexionStr)}</td>
+                      <td class="mono">${escapeHtml(r.desconexionStr || '— ABIERTA —')}</td>
+                      <td class="num"><strong>${escapeHtml(r.horasStr)}</strong></td>
+                      <td><span class="badge ${r.cerrado === 'NO' ? 'b-purple' : 'b-green'}">${escapeHtml(r.cerrado)}</span></td>
+                      <td class="obs-cell">${escapeHtml(r.obs || '—')}</td>
+                      <td class="mono" style="color:var(--text-muted);">${escapeHtml(r.usuarioEdit || '—')}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+
+        $('op-modal').classList.add('open');
+      }
+
+      function closeModal() {
+        $('op-modal').classList.remove('open');
+      }
+
+      // DATA LOADING & STORAGE
+      function saveToStorage(records, meta) {
+        try {
+          // Store compact representation to fit generously in localStorage
+          const compact = records.map(r => [
+            r.usuario, r.matricula, r.nombre, r.apellidos, r.dni,
+            r.tipo, r.subTipo, r.servicio, r.tarea, r.motivo,
+            r.obs, r.conexionStr, r.desconexionStr, r.horasStr,
+            r.cerrado, r.usuarioEdit, r.fechaEdit
+          ]);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(compact));
+          localStorage.setItem(META_KEY, JSON.stringify(meta));
+          return true;
+        } catch (err) {
+          return false;
+        }
+      }
+
+      function loadFromStorage() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          const metaRaw = localStorage.getItem(META_KEY);
+          if (!raw) return null;
+          const compact = JSON.parse(raw);
+          if (!Array.isArray(compact) || !compact.length) return null;
+          const header = ['Usuario', 'Matrícula', 'Nombre', 'Apellidos', 'DNI', 'Tipo', 'SubTipo', 'Servicio', 'Tarea', 'Motivo no productivo', 'Observaciones', 'Conexión', 'Desconexión', 'Horas', 'Cerrado', 'Usuario Edit', 'Fecha Edit'];
+          const records = matrixToRecords([header, ...compact]);
+          const meta = metaRaw ? JSON.parse(metaRaw) : { source: 'Archivo guardado localmente', updatedAt: '' };
+          return { records, meta };
+        } catch (err) {
+          return null;
+        }
+      }
+
+      function applyDataset(records, meta, persist = true) {
+        state.rawRecords = records;
+        state.meta = meta;
+        if (persist) {
+          const ok = saveToStorage(records, meta);
+          if (!ok) {
+            showBanner('Datos cargados en memoria (el archivo supera el límite de caché del navegador, pero funciona al 100% en esta sesión).', 'warn');
+          }
+        }
+        populateDynamicFilters();
+        recompute();
+      }
+
+      async function loadBaseCSV(force = false) {
+        if (!force) {
+          const cached = loadFromStorage();
+          if (cached && cached.records.length) {
+            applyDataset(cached.records, cached.meta, false);
+            return;
+          }
+        }
+        try {
+          const res = await fetch('./datos_iniciales.csv?t=' + Date.now());
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const text = await res.text();
+          const matrix = parseCSV(text);
+          const records = matrixToRecords(matrix);
+          if (!records.length) throw new Error('CSV vacío');
+          localStorage.removeItem(STORAGE_KEY);
+          localStorage.removeItem(META_KEY);
+          applyDataset(records, {
+            source: 'datos_iniciales.csv (Base)',
+            updatedAt: new Date().toLocaleString('es-PE')
+          }, false);
+          if (force) showBanner(`Base restaurada correctamente: ${records.length.toLocaleString('es-PE')} registros cargados.`, 'ok');
+        } catch (err) {
+          $('source-name').textContent = 'Sin datos precargados';
+          $('source-dot').style.background = 'var(--amber)';
+          showBanner('No se pudo precargar datos_iniciales.csv automáticamente. Arrastra o selecciona tu archivo .xlsx o .csv arriba.', 'warn');
+        }
+      }
+
+      async function handleFiles(fileList) {
+        const files = Array.from(fileList || []);
+        if (!files.length) return;
+        const mode = $('upload-mode').value;
+        showBanner(`Procesando ${files.length} archivo(s)...`, 'info');
+
+        let incoming = [];
+        const names = [];
+
+        for (const file of files) {
+          names.push(file.name);
+          const ext = file.name.split('.').pop().toLowerCase();
+          try {
+            if (ext === 'csv' || ext === 'txt') {
+              const text = await file.text();
+              const matrix = parseCSV(text);
+              incoming = incoming.concat(matrixToRecords(matrix));
+            } else if (ext === 'xlsx' || ext === 'xls') {
+              if (typeof XLSX === 'undefined') {
+                throw new Error('La librería SheetJS no cargó. Verifica tu conexión a internet o sube el archivo en formato CSV.');
+              }
+              const buf = await file.arrayBuffer();
+              const wb = XLSX.read(buf, { type: 'array', cellDates: false });
+              const firstSheet = wb.Sheets[wb.SheetNames[0]];
+              const matrix = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: false, defval: '' });
+              incoming = incoming.concat(matrixToRecords(matrix));
+            } else {
+              showBanner(`Formato no soportado (${file.name}). Usa .xlsx, .xls o .csv.`, 'err');
+              return;
+            }
+          } catch (err) {
+            showBanner(`Error leyendo ${file.name}: ${err.message}`, 'err');
+            return;
+          }
+        }
+
+        if (!incoming.length) {
+          showBanner('No se encontraron registros válidos. Verifica que el archivo tenga las columnas Usuario, Conexión, Desconexión y Horas.', 'err');
+          return;
+        }
+
+        let finalRecords = incoming;
+        let label = names.join(' + ');
+
+        if (mode === 'merge' && state.rawRecords.length) {
+          const seen = new Set(state.rawRecords.map(dedupKey));
+          let added = 0;
+          finalRecords = state.rawRecords.slice();
+          for (const r of incoming) {
+            const k = dedupKey(r);
+            if (!seen.has(k)) {
+              seen.add(k);
+              finalRecords.push(r);
+              added++;
+            }
+          }
+          label = `Fusionado (${names.join(', ')})`;
+          showBanner(`Fusión completada: +${added.toLocaleString('es-PE')} registros nuevos agregados (total: ${finalRecords.length.toLocaleString('es-PE')}).`, 'ok');
+        } else {
+          showBanner(`Archivo cargado con éxito: ${finalRecords.length.toLocaleString('es-PE')} registros de ${names.join(', ')}.`, 'ok');
+        }
+
+        $('source-dot').style.background = 'var(--green)';
+        applyDataset(finalRecords, {
+          source: label,
+          updatedAt: new Date().toLocaleString('es-PE')
+        }, true);
+      }
+
+      // CSV EXPORTERS
+      function downloadCSV(filename, headers, rows) {
+        const esc = v => {
+          const s = String(v === null || v === undefined ? '' : v);
+          return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const content = '\uFEFF' + [headers.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\r\n');
+        const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function exportOperatorsCSV() {
+        const ops = state.computed.operators;
+        if (!ops.length) { showBanner('No hay operadores para exportar.', 'warn'); return; }
+        const headers = ['Usuario', 'Matrícula', 'Operador', 'DNI', 'Servicio', 'Turno', 'Días', 'Productivo (min)', 'Productivo (HH:MM)', 'No Productivo (HH:MM)', 'Equipo/Red (HH:MM)', 'Cant. Huecos', 'Tiempo Huecos (HH:MM)', 'Post-Turno No Pagable (HH:MM)', 'Sin Cerrar', 'Sesiones >12h', '% Productividad'];
+        const rows = ops.map(o => [
+          o.usuario, o.matricula, o.fullName, o.dni, o.servicio, o.turno, o.dias,
+          o.prodMin, fmtClock(o.prodMin), fmtClock(o.noProdMin), fmtClock(o.techMin),
+          o.gapCount, fmtClock(o.gapMin), fmtClock(o.postNoPagMin),
+          o.openCount, o.longCount, o.prodPct.toFixed(1) + '%'
+        ]);
+        downloadCSV(`resumen_operadores_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+        showBanner('Resumen por operador exportado en CSV.', 'ok');
+      }
+
+      function exportGapsCSV() {
+        const gaps = state.computed.gaps;
+        if (!gaps.length) { showBanner('No hay desconexiones detectadas para exportar con los filtros actuales.', 'warn'); return; }
+        const headers = ['Fecha', 'Usuario', 'Matrícula', 'Operador', 'Servicio', 'Turno', 'Desconexión', 'Reconexión', 'Duración (min)', 'Duración (HH:MM)', 'Severidad', 'Posible Pausa 40-65m', 'Contexto Previo', 'Contexto Siguiente'];
+        const rows = gaps.map(g => [
+          g.fecha, g.usuario, g.matricula, g.fullName, g.servicio, g.subTipo,
+          g.fromStr, g.toStr, g.gapMin, fmtClock(g.gapMin), g.severity,
+          g.isLikelyBreak ? 'SI' : 'NO', g.prevContext, g.nextContext
+        ]);
+        downloadCSV(`desconexiones_detectadas_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+        showBanner('Reporte de desconexiones exportado en CSV.', 'ok');
+      }
+
+      // EVENT LISTENERS
+      function bindEvents() {
+        $('btn-close-banner').addEventListener('click', hideBanner);
+        $('btn-upload-top').addEventListener('click', () => $('file-input').click());
+        $('btn-pick-file').addEventListener('click', () => $('file-input').click());
+        $('btn-reset-base').addEventListener('click', () => loadBaseCSV(true));
+        $('btn-export-ops').addEventListener('click', exportOperatorsCSV);
+        $('btn-export-gaps').addEventListener('click', exportGapsCSV);
+
+        $('file-input').addEventListener('change', e => {
+          handleFiles(e.target.files);
+          e.target.value = '';
+        });
+
+        // Drag & Drop
+        const dz = $('dropzone');
+        ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => {
+          e.preventDefault();
+          dz.classList.add('dragover');
+        }));
+        ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => {
+          e.preventDefault();
+          dz.classList.remove('dragover');
+        }));
+        dz.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
+
+        // Filters
+        let searchTimer;
+        $('f-search').addEventListener('input', e => {
+          clearTimeout(searchTimer);
+          searchTimer = setTimeout(() => {
+            state.filters.search = e.target.value;
+            state.filters.logPage = 1;
+            recompute();
+          }, 140);
+        });
+        $('f-fecha').addEventListener('change', e => { state.filters.fecha = e.target.value; state.filters.logPage = 1; recompute(); });
+        $('f-turno').addEventListener('change', e => { state.filters.turno = e.target.value; state.filters.logPage = 1; recompute(); });
+        $('f-servicio').addEventListener('change', e => { state.filters.servicio = e.target.value; state.filters.logPage = 1; recompute(); });
+        $('f-mingap').addEventListener('change', e => { state.filters.minGap = parseInt(e.target.value, 10) || 1; recompute(); });
+        $('f-hide-breaks').addEventListener('change', e => {
+          state.filters.hideBreaks = e.target.checked;
+          $('chip-breaks').classList.toggle('active-blue', e.target.checked);
+          recompute();
+        });
+        $('f-only-alerts').addEventListener('change', e => {
+          state.filters.onlyAlerts = e.target.checked;
+          $('chip-alerts').classList.toggle('active-alert', e.target.checked);
+          state.filters.logPage = 1;
+          recompute();
+        });
+        $('btn-clear-filters').addEventListener('click', () => {
+          state.filters.search = '';
+          state.filters.fecha = 'ALL';
+          state.filters.turno = 'ALL';
+          state.filters.servicio = 'ALL';
+          state.filters.minGap = 5;
+          state.filters.hideBreaks = false;
+          state.filters.onlyAlerts = false;
+          state.filters.logPage = 1;
+          $('f-search').value = '';
+          $('f-fecha').value = 'ALL';
+          $('f-turno').value = 'ALL';
+          $('f-servicio').value = 'ALL';
+          $('f-mingap').value = '5';
+          $('f-hide-breaks').checked = false;
+          $('f-only-alerts').checked = false;
+          $('chip-breaks').classList.remove('active-blue');
+          $('chip-alerts').classList.remove('active-alert');
+          recompute();
+        });
+
+        // Tabs
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            $('tab-' + btn.dataset.tab).classList.add('active');
+          });
+        });
+
+        // Table sorting
+        document.querySelectorAll('#tbl-operadores thead th.sortable').forEach(th => {
+          th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            if (state.sort.col === col) {
+              state.sort.dir = state.sort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+              state.sort.col = col;
+              state.sort.dir = (col === 'nombre' || col === 'servicio') ? 'asc' : 'desc';
+            }
+            renderOperatorsTable();
+          });
+        });
+
+        // Gap severity pills
+        $('gap-sev-pills').addEventListener('click', e => {
+          const btn = e.target.closest('.pill-btn');
+          if (!btn) return;
+          $('gap-sev-pills').querySelectorAll('.pill-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          state.filters.gapSev = btn.dataset.sev;
+          renderGapsTab();
+        });
+
+        // Anomalies pills
+        $('anom-pills').addEventListener('click', e => {
+          const btn = e.target.closest('.pill-btn');
+          if (!btn) return;
+          $('anom-pills').querySelectorAll('.pill-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          state.filters.anomType = btn.dataset.anom;
+          renderGapsTab();
+        });
+
+        // Logs subfilters & pagination
+        $('log-tipo').addEventListener('change', e => { state.filters.logTipo = e.target.value; state.filters.logPage = 1; renderLogsTab(); });
+        $('log-motivo').addEventListener('change', e => { state.filters.logMotivo = e.target.value; state.filters.logPage = 1; renderLogsTab(); });
+        $('log-cerrado').addEventListener('change', e => { state.filters.logCerrado = e.target.value; state.filters.logPage = 1; renderLogsTab(); });
+        $('log-page-size').addEventListener('change', e => { state.filters.logPageSize = parseInt(e.target.value, 10) || 100; state.filters.logPage = 1; renderLogsTab(); });
+        $('btn-prev-page').addEventListener('click', () => { if (state.filters.logPage > 1) { state.filters.logPage--; renderLogsTab(); } });
+        $('btn-next-page').addEventListener('click', () => { state.filters.logPage++; renderLogsTab(); });
+
+        // Delegated clicks for operator detail & date picking
+        document.addEventListener('click', e => {
+          const openBtn = e.target.closest('[data-open-op]');
+          if (openBtn) {
+            e.stopPropagation();
+            openOperatorModal(openBtn.dataset.openOp);
+            return;
+          }
+          const opRow = e.target.closest('[data-op]');
+          if (opRow) {
+            openOperatorModal(opRow.dataset.op);
+            return;
+          }
+          const pickDate = e.target.closest('[data-pick-date]');
+          if (pickDate) {
+            const d = pickDate.dataset.pickDate;
+            state.filters.fecha = state.filters.fecha === d ? 'ALL' : d;
+            $('f-fecha').value = state.filters.fecha;
+            recompute();
+            showBanner(state.filters.fecha === 'ALL' ? 'Filtro de fecha quitado.' : `Dashboard filtrado por el día ${d}. Haz clic de nuevo para ver todos los días.`, 'info');
+          }
+        });
+
+        // Modal close
+        $('btn-close-modal').addEventListener('click', closeModal);
+        $('op-modal').addEventListener('click', e => { if (e.target === $('op-modal')) closeModal(); });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+      }
+
+      // Initialize
+      bindEvents();
+      loadBaseCSV(false);
+    })();
+  </script>
+</body>
+</html>
