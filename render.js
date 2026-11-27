@@ -88,10 +88,8 @@ function recompute() {
     const c = critMap.get(dr.opKey);
     c.gapMin += dr.alertMin;
     c.gapCount += dr.alertCount;
-    c.holeCount += dr.gapCount;
     if (dr.isUnregisteredDay) { c.unregCount++; c.lastTag = 'Día sin registro'; }
     else if (dr.earlyExit) { c.earlyCount++; c.lastTag = `Salió ${dr.earlyExit.startTime} (fin ${dr.earlyExit.endTime})`; }
-    else if (dr.gapCount > 0) { c.lastTag = `${dr.gapCount} hueco${dr.gapCount === 1 ? '' : 's'}`; }
     else if (dr.lateEntry) { c.lateCount++; c.lastTag = `Entró ${dr.lateEntry.endTime} (ini ${dr.lateEntry.startTime})`; }
     c.days.add(dr.fecha);
   }
@@ -222,7 +220,7 @@ function renderGroups() {
     const st = groupStats[g.id] || { ops: new Set(), gapOps: new Set(), gapMin: 0, npOps: new Set(), npMin: 0 };
     const isAct = cur === g.id;
     const pills = [];
-    if (st.gapOps.size > 0) pills.push(`<span class="group-alert-dot" title="Desconexiones sin registro">🔌 ${st.gapOps.size} · ${fmtHM(st.gapMin)}</span>`);
+    if (st.gapOps.size > 0) pills.push(`<span class="group-alert-dot" title="Alertas sin registro (Ausencias, Tardanzas, Salidas)">⚠️ ${st.gapOps.size} · ${fmtHM(st.gapMin)}</span>`);
     if (st.npOps.size > 0) pills.push(`<span class="group-np-dot" title="Registros No Presenciales (Justificadas / Faltas)">📋 ${st.npOps.size} · ${fmtHM(st.npMin)}</span>`);
     return `
       <button class="group-tab ${isAct ? 'active' : ''}" data-group="${g.id}"
@@ -268,7 +266,7 @@ function renderAlertPanel() {
       <div class="alert-panel ok-panel">
         <div class="alert-head">
           <div class="alert-title">
-            <span>✅ Todo registrado (sin ausencias ni desconexiones sin registro) en ${escapeHtml(groupLabel)} (${escapeHtml(dayLabel)})</span>
+            <span>✅ Todo registrado (sin ausencias, tardanzas ni salidas anticipadas sin registro) en ${escapeHtml(groupLabel)} (${escapeHtml(dayLabel)})</span>
             ${npSummaryPills}
           </div>
         </div>
@@ -297,7 +295,7 @@ function renderAlertPanel() {
     <div class="alert-panel">
       <div class="alert-head">
         <div class="alert-title">
-          <span>🚨 Alerta: Sin Registro (Ausencias, Desconexiones y Salidas) · ${escapeHtml(groupLabel)} (${escapeHtml(dayLabel)})</span>
+          <span>🚨 Alerta: Sin Registro (Ausencias, Tardanzas y Salidas) · ${escapeHtml(groupLabel)} (${escapeHtml(dayLabel)})</span>
           ${criticalOps.length ? `<span class="alert-kpi-pill">${criticalOps.length} ${criticalOps.length === 1 ? personSingular : personPlural} · ${totalGaps} alerta${totalGaps === 1 ? '' : 's'} · ${fmtHM(totalGapMin)} sin registro</span>` : ''}
           ${unregRows.length ? `<span class="alert-kpi-pill" data-quick-state="SIN_REGISTRO" style="cursor:pointer;background:#fee2e2;color:#991b1b;border-color:#f87171;" title="Clic para filtrar solo ausencias sin registro">⚠️ ${unregRows.length} sin registro (día completo)</span>` : ''}
           ${openCount > 0 ? `<span class="alert-kpi-pill open-pill">⚠️ ${openCount} sin cerrar</span>` : ''}
@@ -445,9 +443,6 @@ function buildGapsCell(dr) {
   if (dr.lateEntry) {
     pills.push(`<span class="gap-pill late-pill" title="Ingreso tardío respecto a su horario habitual ${escapeHtml(dr.sched.label)}">⏰ Tardío ${dr.lateEntry.startTime}–${dr.lateEntry.endTime} · ${fmtHM(dr.lateEntry.durationMin)}</span>`);
   }
-  for (const g of dr.gaps) {
-    pills.push(`<span class="gap-pill">🔌 Hueco ${g.startTime}–${g.endTime} · ${fmtHM(g.durationMin)}</span>`);
-  }
   if (dr.earlyExit) {
     pills.push(`<span class="gap-pill early-pill" title="Se desconectó antes de su hora de salida habitual ${escapeHtml(dr.sched.label)} sin registro posterior">🚪 Salió ${dr.earlyExit.startTime} (fin ${dr.earlyExit.endTime}) · ${fmtHM(dr.earlyExit.durationMin)}</span>`);
   }
@@ -565,8 +560,7 @@ function renderDailyView() {
       : (dr.onlyNoPresencial
         ? `<span class="np-tag-inline ${dr.npJustMin > 0 && dr.npNoJustMin === 0 ? 'np-tag-just' : 'np-tag-nojust'}">${dr.isPresencialDate ? 'Ausente' : 'Solo NP'}</span>`
         : '');
-    const timeSubLines = [];
-    if (dr.hasPrePost) timeSubLines.push(`<div class="time-sub">Log ${escapeHtml(dr.logStartTime)}–${escapeHtml(dr.logEndTime || '…')}</div>`);
+    const timeSubLines = [`<div class="time-sub">Horario ${escapeHtml(formatSchedRange(dr.sched))}</div>`];
     if (dr.npTimeRange) timeSubLines.push(`<div class="time-sub" style="color:#4338ca;font-weight:700;">NP ${escapeHtml(dr.npTimeRange)}</div>`);
     if (dr.onlyNoPresencial) timeSubLines.push(`<div class="time-sub" style="color:${dr.npJustMin > 0 && dr.npNoJustMin === 0 ? '#4338ca' : '#9f1239'};">${dr.isPresencialDate ? 'Sin conexión en sede' : 'Solo registro NP'}</div>`);
     if (dr.isUnregisteredDay) timeSubLines.push(`<div class="time-sub" style="color:#991b1b;font-weight:700;">Sin presencial ni NP</div>`);
@@ -588,7 +582,7 @@ function renderDailyView() {
           </div>
         </td>
         <td class="time-cell">
-          <div class="time-main" style="${dr.onlyNoPresencial ? 'color:#475569;' : ''}">${escapeHtml(dr.startTime)} → ${endHtml}</div>
+          <div class="time-main" style="${dr.onlyNoPresencial || dr.isUnregisteredDay ? 'color:#475569;' : ''}">${escapeHtml(dr.startTime)} → ${endHtml}</div>
           ${timeSubLines.join('')}
         </td>
         <td>${buildTimeline(dr, activeRange)}</td>
@@ -636,6 +630,7 @@ function renderOpView() {
           </td>
           <td class="time-cell">
             <div class="time-main" style="${dr.onlyNoPresencial || dr.isUnregisteredDay ? 'color:#475569;' : ''}">${escapeHtml(dr.startTime)} → ${endHtml}</div>
+            <div class="time-sub">Horario ${escapeHtml(formatSchedRange(dr.sched))}</div>
             ${dr.npTimeRange ? `<div class="time-sub" style="color:#4338ca;font-weight:700;">NP ${escapeHtml(dr.npTimeRange)}</div>` : ''}
             ${dr.isUnregisteredDay ? `<div class="time-sub" style="color:#991b1b;font-weight:700;">Sin presencial ni NP</div>` : ''}
           </td>
@@ -662,7 +657,7 @@ function renderOpView() {
             <span style="color:#065f46;font-weight:700;">Presencial: ${fmtHM(op.prodMin)}</span>
             ${op.npJustMin > 0 ? `<span class="np-tag-inline np-tag-just">✓ Justif: ${fmtHM(op.npJustMin)}</span>` : ''}
             ${op.npNoJustMin > 0 ? `<span class="np-tag-inline np-tag-nojust">✕ No Just: ${fmtHM(op.npNoJustMin)}</span>` : ''}
-            ${op.gapCount > 0 ? `<span class="gap-pill">🔌 ${op.gapCount} · ${fmtHM(op.gapMin)}</span>` : ''}
+            ${op.gapCount > 0 ? `<span class="gap-pill">⚠️ ${op.gapCount} · ${fmtHM(op.gapMin)}</span>` : ''}
           </div>
         </div>
         <div class="table-scroll">

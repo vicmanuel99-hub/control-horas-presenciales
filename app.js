@@ -265,13 +265,12 @@ function exportCSV() {
     'Fecha', 'Rol', 'Grupo', 'Horario Habitual', 'Usuario', 'Nombre', 'Inicio', 'Fin',
     'Presencial', 'Otros Estados', 'Detalle Estados',
     'No Pres. Justificadas', 'No Pres. No Justificadas', 'Recuperar H.', 'Detalle No Presencial',
-    'Alertas Sin Registro', 'Tiempo Sin Registro', 'Detalle Desconexiones / Salida Ant. / Tardío', 'Sin Cerrar'
+    'Alertas Sin Registro', 'Tiempo Sin Registro', 'Detalle Alertas (Ausencia / Salida Ant. / Tardío)', 'Sin Cerrar'
   ];
   const body = rows.map(d => {
     const det = [
       ...(d.unregAbsence ? [`Ausencia sin registro ${d.unregAbsence.startTime}-${d.unregAbsence.endTime} (${fmtHM(d.unregAbsence.durationMin)})`] : []),
       ...(d.lateEntry ? [`Ingreso tardío ${d.lateEntry.startTime}-${d.lateEntry.endTime} (${fmtHM(d.lateEntry.durationMin)})`] : []),
-      ...d.gaps.map(g => `Hueco ${g.startTime}-${g.endTime} (${fmtHM(g.durationMin)})`),
       ...(d.earlyExit ? [`Salida ant. ${d.earlyExit.startTime}-${d.earlyExit.endTime} (${fmtHM(d.earlyExit.durationMin)})`] : [])
     ].join(' | ');
     const npDet = d.npRecords.map(r => `${r.tipo} - ${r.motivo} ${r.startTimeStr}-${r.endTimeStr} (${fmtHM(r.durationMin)})`).join(' | ');

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Control de Horas Presenciales y Desconexiones</title>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="./styles.css?v=6" />
+  <link rel="stylesheet" href="./styles.css?v=7" />
 </head>
 <body>
   <div class="drop-overlay" id="drop-overlay">
@@ -153,11 +153,11 @@
           <input type="text" id="f-search" placeholder="Buscar operador, usuario, motivo u observación..." />
         </div>
 
-        <select class="select-clean" id="f-mingap" title="Duración mínima para contar como desconexión">
-          <option value="1" selected>Desconexión ≥ 1 min</option>
-          <option value="5">Desconexión ≥ 5 min</option>
-          <option value="15">Desconexión ≥ 15 min</option>
-          <option value="30">Desconexión ≥ 30 min</option>
+        <select class="select-clean" id="f-mingap" title="Duración mínima para pintar huecos y tolerancia de alertas">
+          <option value="1" selected>Hueco / Tolerancia ≥ 1 min</option>
+          <option value="5">Hueco / Tolerancia ≥ 5 min</option>
+          <option value="15">Hueco / Tolerancia ≥ 15 min</option>
+          <option value="30">Hueco / Tolerancia ≥ 30 min</option>
         </select>
 
         <button class="btn btn-xs" id="btn-clear" style="display:none;">✕ Limpiar filtros</button>
@@ -209,7 +209,7 @@
         <div class="board-head">
           <div class="board-summary" id="op-summary"></div>
           <select class="select-clean" id="f-op-sort" style="padding:4px 8px;font-size:11.5px;">
-            <option value="gaps">Más desconexiones primero</option>
+            <option value="gaps">Más alertas primero</option>
             <option value="np">Más horas no presenciales</option>
             <option value="nombre">Nombre (A–Z)</option>
             <option value="nonProd">Más incidencias primero</option>
@@ -267,8 +267,8 @@
     </section>
   </main>
 
-  <script src="./engine.js?v=6"></script>
-  <script src="./render.js?v=6"></script>
-  <script src="./app.js?v=6"></script>
+  <script src="./engine.js?v=7"></script>
+  <script src="./render.js?v=7"></script>
+  <script src="./app.js?v=7"></script>
 </body>
 </html>
