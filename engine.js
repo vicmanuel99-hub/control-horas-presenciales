@@ -1,9 +1,10 @@
 'use strict';
 
 
-const STORAGE_KEY_P = 'control_horas_v4_presencial';
-const STORAGE_KEY_NP = 'control_horas_v4_nopresencial';
-const META_KEY = 'control_horas_v4_meta';
+const STORAGE_KEY_P = 'control_horas_v5_presencial';
+const STORAGE_KEY_NP = 'control_horas_v5_nopresencial';
+const STORAGE_KEY_VAC = 'control_horas_v5_vacaciones';
+const META_KEY = 'control_horas_v5_meta';
 const MAX_INTRA_SHIFT_GAP_MIN = 420; // hasta 7h dentro de la misma jornada
 
 // Supervisores definidos (por Usuario ID exacto o nombre normalizado para futuros archivos)
@@ -58,6 +59,7 @@ const KNOWN_STATES = {
   'Apoyo Encargado': { key: 'Apoyo Encargado', label: 'Apoyo Encargado', short: 'Apoyo', color: '#0891b2', soft: '#ecfeff', border: '#a5f3fc', text: '#155e75', order: 6 },
   NP_JUSTIFICADA: { key: 'NP_JUSTIFICADA', label: 'No Pres. Justificada', short: 'Justificada', color: '#4f46e5', soft: '#eef2ff', border: '#c7d2fe', text: '#3730a3', stripedIndigo: true, order: 70 },
   NP_NO_JUSTIFICADA: { key: 'NP_NO_JUSTIFICADA', label: 'No Pres. No Justificada', short: 'Falta / NJ', color: '#be123c', soft: '#ffe4e6', border: '#fda4af', text: '#881337', stripedCrimson: true, order: 71 },
+  VACACIONES: { key: 'VACACIONES', label: 'Vacaciones', short: 'Vacaciones', color: '#0d9488', soft: '#f0fdfa', border: '#5eead4', text: '#115e59', stripedTeal: true, order: 72 },
   NO_PAGABLE: { key: 'NO_PAGABLE', label: 'No Pagable', short: 'No Pag.', color: '#94a3b8', soft: '#f8fafc', border: '#cbd5e1', text: '#475569', order: 90 },
   SIN_REGISTRO: { key: 'SIN_REGISTRO', label: 'Sin registro (Ausencia)', short: 'Sin registro', color: '#dc2626', soft: '#fef2f2', border: '#fca5a5', text: '#991b1b', stripedAlert: true, order: 94 },
   DESCONEXION: { key: 'DESCONEXION', label: 'Desconexión (Hueco)', short: 'Hueco', color: '#e11d48', soft: '#fff1f2', border: '#fda4af', text: '#9f1239', striped: true, order: 95 },
@@ -108,9 +110,10 @@ function shortMotivoNP(motivo, isJust) {
 const state = {
   presencialRecords: [],
   noPresencialRecords: [],
+  vacacionesRecords: [],
   rawRecords: [],
-  meta: { pSource: '', npSource: '' },
-  modalStaged: { p: null, np: null },
+  meta: { pSource: '', npSource: '', vacSource: '' },
+  modalStaged: { p: null, np: null, vac: null },
   role: 'OPERADORES', // 'OPERADORES' | 'SUPERVISORES'
   view: 'diario',
   filters: {
@@ -178,12 +181,35 @@ function formatSchedRange(sched) {
   return `${sStr} a ${eStr}`;
 }
 
+function cleanUsuarioId(val) {
+  const s = String(val ?? '').replace(/[\s\u00A0]+/g, ' ').trim();
+  if (!s) return '';
+  if (/^\d+\.0+$/.test(s)) return s.replace(/\.0+$/, '');
+  return s;
+}
+
+function parseTimeOnly(val) {
+  if (val === null || val === undefined || val === '') return '';
+  const s = String(val).trim();
+  if (!s) return '';
+  if (/^0?\.\d+$/.test(s) || (typeof val === 'number' && val >= 0 && val < 1)) {
+    const mins = Math.round(parseFloat(s) * 1440);
+    return fmtClock(mins);
+  }
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (m) return `${String(parseInt(m[1], 10)).padStart(2, '0')}:${m[2]}`;
+  return '';
+}
+
 function parseDateTime(val) {
   if (val === null || val === undefined || val === '') return null;
   if (val instanceof Date && !isNaN(val.getTime())) return val;
-  if (typeof val === 'number' && val > 25000 && val < 90000) {
-    const d = new Date(Math.floor(val - 25569) * 86400 * 1000);
-    const sec = Math.round((val - Math.floor(val)) * 86400);
+  let numVal = null;
+  if (typeof val === 'number') numVal = val;
+  else if (typeof val === 'string' && /^\d{5}(?:\.\d+)?$/.test(val.trim())) numVal = parseFloat(val.trim());
+  if (numVal !== null && numVal > 25000 && numVal < 90000) {
+    const d = new Date(Math.floor(numVal - 25569) * 86400 * 1000);
+    const sec = Math.round((numVal - Math.floor(numVal)) * 86400);
     return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), Math.floor(sec / 3600), Math.floor((sec % 3600) / 60), sec % 60);
   }
   const s = String(val).trim();
@@ -264,28 +290,38 @@ function detectDatasetKind(matrix) {
   for (let i = 0; i < Math.min(15, matrix.length); i++) {
     const nr = matrix[i].map(normalizeKey);
     if ((nr.includes('usuario') || nr.includes('matricula') || nr.includes('nombre')) &&
-        (nr.includes('conexion') || nr.includes('inicio') || nr.includes('horas'))) {
+        (nr.includes('conexion') || nr.includes('inicio') || nr.includes('horas') || nr.includes('fecha') || nr.includes('fecha solicitud'))) {
       headerIdx = i;
       break;
     }
   }
   const headers = matrix[headerIdx].map(normalizeKey);
-  const hasConexion = headers.includes('conexion') || headers.includes('desconexion') || headers.includes('motivo no productivo') || headers.includes('subtipo') || headers.includes('servicio');
+  const hasConexion = headers.includes('conexion') || headers.includes('desconexion') || headers.includes('motivo no productivo') || headers.includes('subtipo');
   const hasNPCols = headers.includes('recuperar h') || headers.includes('recuperar') || (!hasConexion && headers.includes('inicio') && headers.includes('fin') && headers.includes('motivo'));
+  const hasVacCols = headers.includes('fecha solicitud') || (headers.includes('fecha') && (headers.includes('j') || headers.includes('jornada')) && (headers.includes('estado') || headers.includes('turno')) && !hasConexion && !hasNPCols);
+
+  if (hasVacCols) return 'VACACIONES';
   if (hasNPCols && !hasConexion) return 'NO_PRESENCIAL';
   if (hasConexion && !hasNPCols) return 'PRESENCIAL';
 
-  // Respaldo por valores de la columna Tipo
+  // Respaldo por valores de la columna Tipo o Turno
   const tipoIdx = headers.indexOf('tipo');
-  if (tipoIdx !== -1) {
-    let npHits = 0, pHits = 0;
-    for (let i = headerIdx + 1; i < Math.min(matrix.length, headerIdx + 15); i++) {
+  const turnoIdx = headers.indexOf('turno');
+  let npHits = 0, pHits = 0, vacHits = 0;
+  for (let i = headerIdx + 1; i < Math.min(matrix.length, headerIdx + 15); i++) {
+    if (tipoIdx !== -1) {
       const v = normalizeKey(matrix[i]?.[tipoIdx]);
+      if (v.includes('v normales') || v.includes('vacacion')) vacHits++;
       if (v.includes('justificada')) npHits++;
       if (v.includes('jornada') || v.includes('pagable')) pHits++;
     }
-    if (npHits > pHits) return 'NO_PRESENCIAL';
+    if (turnoIdx !== -1) {
+      const tv = normalizeKey(matrix[i]?.[turnoIdx]);
+      if (tv === 'v') vacHits++;
+    }
   }
+  if (vacHits > npHits && vacHits > pHits) return 'VACACIONES';
+  if (npHits > pHits) return 'NO_PRESENCIAL';
   return 'PRESENCIAL';
 }
 
@@ -453,9 +489,106 @@ function matrixToNoPresencialRecords(matrix) {
   return records;
 }
 
+function matrixToVacacionesRecords(matrix) {
+  if (!matrix || matrix.length < 2) return [];
+  let headerIdx = 0;
+  for (let i = 0; i < Math.min(15, matrix.length); i++) {
+    const nr = matrix[i].map(normalizeKey);
+    if ((nr.includes('usuario') || nr.includes('nombre')) && (nr.includes('fecha') || nr.includes('fecha solicitud') || nr.includes('estado'))) {
+      headerIdx = i;
+      break;
+    }
+  }
+  const headers = matrix[headerIdx].map(normalizeKey);
+  const colIdx = aliases => { for (const a of aliases) { const i = headers.indexOf(a); if (i !== -1) return i; } return -1; };
+  const map = {
+    usuario: colIdx(['usuario', 'id usuario', 'id']),
+    nombre: colIdx(['nombre', 'nombres']),
+    apellidos: colIdx(['apellidos', 'apellido']),
+    fecha: colIdx(['fecha', 'fecha vacacion', 'dia']),
+    hora: colIdx(['hora', 'hora inicio']),
+    jornada: colIdx(['j', 'jornada', 'horas']),
+    turno: colIdx(['turno']),
+    servicio: colIdx(['servicio', 'campana']),
+    estado: colIdx(['estado']),
+    tipo: colIdx(['tipo', 'tipo vacacion']),
+    fechaSolicitud: colIdx(['fecha solicitud', 'solicitud'])
+  };
+  if (map.usuario === -1 && map.nombre === -1) return [];
+  const gv = (r, i) => (i >= 0 && i < r.length && r[i] !== undefined && r[i] !== null) ? String(r[i]).replace(/[\s\u00A0]+/g, ' ').trim() : '';
+
+  const records = [];
+  for (let i = headerIdx + 1; i < matrix.length; i++) {
+    const row = matrix[i];
+    if (!row || !row.length) continue;
+    const usuario = cleanUsuarioId(gv(row, map.usuario));
+    const nombre = gv(row, map.nombre);
+    const apellidos = gv(row, map.apellidos);
+    const fechaRaw = gv(row, map.fecha);
+    if (!usuario && !nombre && !fechaRaw) continue;
+
+    const vacEstado = gv(row, map.estado) || 'Aceptado';
+    if (/rechaz|deneg|anulad|cancel/i.test(normalizeKey(vacEstado))) continue;
+
+    const fechaDt = parseDateTime(fechaRaw);
+    const fecha = fechaDt ? formatDateKey(fechaDt) : '';
+    if (!fecha) continue;
+
+    const horaStr = parseTimeOnly(gv(row, map.hora));
+    const jRaw = gv(row, map.jornada);
+    const jNum = jRaw ? parseFloat(jRaw.replace(',', '.')) : NaN;
+    const vacHoras = (!isNaN(jNum) && jNum > 0 && jNum <= 24) ? jNum : 8;
+    const durationMin = Math.round(vacHoras * 60);
+    const vacTurno = gv(row, map.turno).toUpperCase();
+    const vacServicio = (gv(row, map.servicio) || '-').toUpperCase();
+    const vacTipo = gv(row, map.tipo) || 'V. Normales';
+    const fSolDt = parseDateTime(gv(row, map.fechaSolicitud));
+    const fechaSolicitudStr = fSolDt ? `${formatDateKey(fSolDt)} ${formatTime(fSolDt)}` : gv(row, map.fechaSolicitud);
+    const fullName = `${nombre} ${apellidos}`.trim() || `Usuario ${usuario}`;
+    const opKey = usuario || fullName;
+
+    const obsParts = [`Estado: ${vacEstado}`, `Tipo: ${vacTipo}`];
+    if (vacTurno) obsParts.push(`Turno: ${vacTurno}`);
+    if (fechaSolicitudStr) obsParts.push(`Solicitud: ${fechaSolicitudStr}`);
+
+    records.push({
+      sourceKind: 'VACACIONES',
+      isNoPresencial: false,
+      isVacacion: true,
+      isJustificada: true,
+      recuperarH: '',
+      shortLabel: vacTipo === 'V. Normales' ? 'Vacaciones' : (vacTipo.length > 16 ? vacTipo.slice(0, 15) + '…' : vacTipo),
+      opKey, usuario, matricula: '', nombre, apellidos, fullName, dni: '',
+      tipo: vacTipo,
+      subTipo: vacTurno,
+      servicio: vacServicio,
+      motivo: vacTipo,
+      vacEstado, vacTipo, vacTurno, vacHoras, vacHoraStr: horaStr, fechaSolicitudStr,
+      obs: obsParts.join(' · '),
+      conexionStr: horaStr ? `${fecha} ${horaStr}` : fecha,
+      desconexionStr: '',
+      startTimeStr: horaStr || '—',
+      endTimeStr: '',
+      startMs: fechaDt ? fechaDt.getTime() : null,
+      endMs: null,
+      fecha, fechaSort: dateKeyToSort(fecha),
+      horasStr: fmtClock(durationMin) + ':00',
+      durationMin, cerrado: 'SI',
+      usuarioEdit: '', fechaEdit: '',
+      isOpen: false,
+      isProductive: false,
+      isNonProd: false,
+      stateKey: 'VACACIONES'
+    });
+  }
+  return records;
+}
+
 function parseAnyMatrix(matrix, forcedKind = null) {
   const kind = forcedKind || detectDatasetKind(matrix);
-  const records = kind === 'NO_PRESENCIAL' ? matrixToNoPresencialRecords(matrix) : matrixToRecords(matrix);
+  const records = kind === 'VACACIONES'
+    ? matrixToVacacionesRecords(matrix)
+    : (kind === 'NO_PRESENCIAL' ? matrixToNoPresencialRecords(matrix) : matrixToRecords(matrix));
   return { kind, records };
 }
 
@@ -510,8 +643,12 @@ function classifyShiftTurno(normalRecs, dayStartMs) {
   return 'DIURNO';
 }
 
-function buildOperatorDayRows(presRecords, npRecords, minGap) {
-  const allInput = [...(presRecords || []), ...(npRecords || [])];
+function buildOperatorDayRows(presRecords, npRecords, vacRecords, minGap) {
+  if (!Array.isArray(vacRecords) && typeof vacRecords === 'number') {
+    minGap = vacRecords;
+    vacRecords = [];
+  }
+  const allInput = [...(presRecords || []), ...(npRecords || []), ...(vacRecords || [])];
   const goatOps = computeOperatorCampaignMap(presRecords || []);
   const presencialDates = new Set((presRecords || []).map(r => r.fecha).filter(Boolean));
   const groups = new Map();
@@ -523,14 +660,15 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
       groups.set(key, {
         rowKey: key, opKey: r.opKey, usuario: r.usuario, matricula: r.matricula,
         fullName: r.fullName, dni: r.dni, fecha: r.fecha, fechaSort: r.fechaSort,
-        servicios: new Set(), presRecords: [], npRecords: [], records: []
+        servicios: new Set(), presRecords: [], npRecords: [], vacRecords: [], records: []
       });
     }
     const g = groups.get(key);
     if (!g.usuario && r.usuario) g.usuario = r.usuario;
     if (!g.matricula && r.matricula) g.matricula = r.matricula;
     if (!g.dni && r.dni) g.dni = r.dni;
-    if (r.isNoPresencial) g.npRecords.push(r);
+    if (r.isVacacion) g.vacRecords.push(r);
+    else if (r.isNoPresencial) g.npRecords.push(r);
     else g.presRecords.push(r);
     g.records.push(r);
     if (r.servicio && r.servicio !== '-') g.servicios.add(r.servicio);
@@ -553,7 +691,7 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
       });
       voteTurno = classifyShiftTurno(normP, dayStartMs);
       weight = 3; // peso fuerte a jornadas presenciales reales
-    } else {
+    } else if (g.npRecords.length) {
       const npMin = g.npRecords.reduce((s, r) => s + r.durationMin, 0);
       if (npMin >= 300) {
         voteTurno = classifyShiftTurno(g.npRecords, dayStartMs);
@@ -585,10 +723,12 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
 
     const hasPresencial = g.presRecords.length > 0;
     const hasNoPresencial = g.npRecords.length > 0;
+    const hasVacacion = g.vacRecords.length > 0;
     const onlyNoPresencial = !hasPresencial && hasNoPresencial;
+    const onlyVacacion = !hasPresencial && !hasNoPresencial && hasVacacion;
 
     const jornadaRecs = g.presRecords.filter(r => r.tipo === 'H. Jornada');
-    const primaryRecs = jornadaRecs.length ? jornadaRecs : (hasPresencial ? g.presRecords : g.npRecords);
+    const primaryRecs = jornadaRecs.length ? jornadaRecs : (hasPresencial ? g.presRecords : (hasNoPresencial ? g.npRecords : g.vacRecords));
     const firstPrimary = primaryRecs.find(r => r.startMs !== null);
 
     // Excluir pre-login nocturno de las 23:5x que corresponde al turno del día siguiente (solo presenciales)
@@ -607,7 +747,7 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
       turnoReal = fixedSched.turno;
     } else if (hasPresencial) {
       turnoReal = classifyShiftTurno(normalRecs, dayStartMs);
-    } else {
+    } else if (hasNoPresencial) {
       const totalNpMin = g.npRecords.reduce((s, r) => s + r.durationMin, 0);
       if (totalNpMin >= 300) {
         turnoReal = classifyShiftTurno(g.npRecords, dayStartMs);
@@ -616,6 +756,13 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
       } else {
         const maxNpEnd = Math.max(...g.npRecords.map(r => r.endMs ? (r.endMs - dayStartMs) / 60000 : 9999));
         turnoReal = maxNpEnd <= 665 ? 'NOCTURNO' : classifyShiftTurno(g.npRecords, dayStartMs);
+      }
+    } else if (hasVacacion) {
+      if (opDefaultTurnoMap.has(g.opKey)) {
+        turnoReal = opDefaultTurnoMap.get(g.opKey);
+      } else {
+        const vr = g.vacRecords[0];
+        turnoReal = (vr && (vr.vacHoras >= 9.5 || vr.vacTurno === 'N')) ? 'NOCTURNO' : 'DIURNO';
       }
     }
 
@@ -688,7 +835,7 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
     }
 
     prepared.push({
-      g, dayStartMs, hasPresencial, hasNoPresencial, onlyNoPresencial,
+      g, dayStartMs, hasPresencial, hasNoPresencial, hasVacacion, onlyNoPresencial, onlyVacacion,
       jornadaRecs, primaryRecs, firstPrimary, normalRecs, shiftRecs,
       turnoReal, fixedSched, isSup, campana, groupId,
       effStartMin, effEndMin, connStartMin, connEndMin, npStartMin, npEndMin
@@ -731,7 +878,7 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
 
   for (const item of prepared) {
     const {
-      g, dayStartMs, hasPresencial, hasNoPresencial, onlyNoPresencial,
+      g, dayStartMs, hasPresencial, hasNoPresencial, hasVacacion, onlyNoPresencial, onlyVacacion,
       jornadaRecs, primaryRecs, firstPrimary, normalRecs, shiftRecs,
       turnoReal, fixedSched, isSup, campana, groupId,
       connStartMin, connEndMin, npStartMin, npEndMin
@@ -754,9 +901,9 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
     const latestLogRec = logPool.length ? logPool[logPool.length - 1] : null;
     const isLatestOpen = !!(hasPresencial && latestLogRec && latestLogRec.isOpen && latestLogRec.endMs === null);
 
-    const startTime = firstLog ? formatTime(new Date(firstLog.startMs)) : '—';
-    const endTime = isLatestOpen ? '' : (lastLogEndMs ? formatTime(new Date(lastLogEndMs)) : '');
-    const endNextDay = !!(!isLatestOpen && lastLogEndMs && formatDateKey(new Date(lastLogEndMs)) !== g.fecha);
+    const startTime = onlyVacacion ? fmtClock(sched.startMin) : (firstLog ? formatTime(new Date(firstLog.startMs)) : '—');
+    const endTime = onlyVacacion ? fmtClock(sched.endMin) : (isLatestOpen ? '' : (lastLogEndMs ? formatTime(new Date(lastLogEndMs)) : ''));
+    const endNextDay = !!(!onlyVacacion && !isLatestOpen && lastLogEndMs && formatDateKey(new Date(lastLogEndMs)) !== g.fecha);
     const logStartTime = firstLog ? formatTime(new Date(firstLog.startMs)) : '';
     const logEndTime = lastLogEndMs ? formatTime(new Date(lastLogEndMs)) : '';
     const hasPrePost = false;
@@ -799,7 +946,7 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
     let lateEntry = null;
     const npSumForEdge = g.npRecords.reduce((s, r) => s + r.durationMin, 0);
     const schedTotalMin = Math.max(60, sched.endMin - sched.startMin);
-    const isPartialNpOnPresDate = onlyNoPresencial && presencialDates.has(g.fecha) && npSumForEdge < Math.min(300, schedTotalMin - 60);
+    const isPartialNpOnPresDate = onlyNoPresencial && !hasVacacion && presencialDates.has(g.fecha) && npSumForEdge < Math.min(300, schedTotalMin - 60);
 
     if (hasPresencial || isPartialNpOnPresDate) {
       const coveredEndMin = (connEndMin !== null && npEndMin !== null) ? Math.max(connEndMin, npEndMin) : (connEndMin !== null ? connEndMin : npEndMin);
@@ -919,6 +1066,43 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
       }
     }
 
+    let vacMin = 0;
+    const vacList = [];
+    for (const r of g.vacRecords) {
+      presentStates.add('VACACIONES');
+      const vDur = r.durationMin || Math.max(60, Math.round(sched.endMin - sched.startMin));
+      vacMin += vDur;
+      vacList.push({
+        stateKey: 'VACACIONES',
+        vacTipo: r.vacTipo,
+        vacEstado: r.vacEstado,
+        shortLabel: r.shortLabel,
+        minutes: vDur
+      });
+
+      const sMin = sched.startMin;
+      const eMin = sched.endMin;
+      const sMs = dayStartMs + sMin * 60000;
+      const eMs = dayStartMs + eMin * 60000;
+      if (eMin > maxVisMin) maxVisMin = eMin;
+
+      timelineItems.push({
+        kind: 'vac_record',
+        stateKey: 'VACACIONES',
+        onTimeline: !hasPresencial,
+        vacTipo: r.vacTipo,
+        vacEstado: r.vacEstado,
+        shortLabel: r.shortLabel,
+        startMs: sMs, endMs: eMs, sMin, eMin,
+        startTime: fmtClock(sMin),
+        endTime: fmtClock(eMin),
+        endNextDay: false,
+        durationMin: vDur,
+        isOpen: false,
+        obs: r.obs
+      });
+    }
+
     let gapMin = 0;
     for (const gp of gaps) {
       gapMin += gp.durationMin;
@@ -965,32 +1149,34 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
     const alertCount = (earlyExit ? 1 : 0) + (lateEntry ? 1 : 0);
 
     timelineItems.sort((a, b) => (a.startMs - b.startMs) || (a.kind === 'record' ? -1 : 1));
-    const startMinSort = firstLog && firstLog.startMs !== null ? (firstLog.startMs - dayStartMs) / 60000 : 9999;
+    const startMinSort = onlyVacacion ? sched.startMin : (firstLog && firstLog.startMs !== null ? (firstLog.startMs - dayStartMs) / 60000 : 9999);
 
     dayRows.push({
       rowKey: g.rowKey, opKey: g.opKey, usuario: g.usuario, matricula: g.matricula,
       fullName: g.fullName, dni: g.dni, fecha: g.fecha, fechaSort: g.fechaSort,
       turnoReal, isSup, campana, groupId,
       sched,
-      hasPresencial, hasNoPresencial, onlyNoPresencial, isUnregisteredDay: false,
+      hasPresencial, hasNoPresencial, hasVacacion, onlyNoPresencial, onlyVacacion, isUnregisteredDay: false,
       isPresencialDate: presencialDates.has(g.fecha),
       startTime, endTime, endNextDay, logStartTime, logEndTime, hasPrePost, npTimeRange,
       onlyNoPagable: hasPresencial && jornadaRecs.length === 0,
       startMinSort, prodMin, nonProdMin, noPagMin,
       npJustMin, npNoJustMin, npTotalMin, hasRecuperarSi,
       npList: [...npBadgeMap.values()].sort((a, b) => b.minutes - a.minutes),
+      vacMin, vacList,
       gapMin, gapCount: gaps.length, gaps,
       earlyExit, lateEntry, unregAbsence: null,
       alertMin, alertCount,
       openCount,
       nonProdList: [...nonProdMap.values()].sort((a, b) => b.minutes - a.minutes),
-      presentStates, timelineItems, records: g.records, presRecords: g.presRecords, npRecords: g.npRecords, maxVisMin,
+      presentStates, timelineItems, records: g.records, presRecords: g.presRecords, npRecords: g.npRecords, vacRecords: g.vacRecords, maxVisMin,
       searchHay: normalizeKey(
         `${g.usuario} ${g.matricula} ${g.fullName} ${g.dni} ${g.fecha} ${campana} ${turnoReal} ${sched.label} ` +
         (onlyNoPresencial ? 'ausente no presencial ' : '') +
         (hasNoPresencial ? 'no presencial ' : '') +
+        (hasVacacion ? 'vacaciones vacacion ' : '') +
         (hasRecuperarSi ? 'recuperar ' : '') +
-        g.records.map(r => `${r.tipo} ${r.motivo} ${r.recuperarH || ''} ${r.obs}`).join(' ')
+        g.records.map(r => `${r.tipo} ${r.motivo} ${r.recuperarH || ''} ${r.vacEstado || ''} ${r.obs}`).join(' ')
       )
     });
   }
@@ -1079,19 +1265,19 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
           fullName: prof.fullName, dni: prof.dni, fecha, fechaSort: fSort,
           turnoReal: prof.turnoReal, isSup: prof.isSup, campana: prof.campana, groupId: prof.groupId,
           sched,
-          hasPresencial: false, hasNoPresencial: false, onlyNoPresencial: false, isUnregisteredDay: true,
+          hasPresencial: false, hasNoPresencial: false, hasVacacion: false, onlyNoPresencial: false, onlyVacacion: false, isUnregisteredDay: true,
           isPresencialDate: true,
           startTime: '—', endTime: '—', endNextDay: false, logStartTime: '', logEndTime: '', hasPrePost: false, npTimeRange: '',
           onlyNoPagable: false,
           startMinSort: sched.startMin, prodMin: 0, nonProdMin: 0, noPagMin: 0,
           npJustMin: 0, npNoJustMin: 0, npTotalMin: 0, hasRecuperarSi: false,
-          npList: [],
+          npList: [], vacMin: 0, vacList: [],
           gapMin: 0, gapCount: 0, gaps: [],
           earlyExit: null, lateEntry: null, unregAbsence,
           alertMin: durMin, alertCount: 1,
           openCount: 0,
           nonProdList: [],
-          presentStates, timelineItems, records: [], presRecords: [], npRecords: [], maxVisMin: sched.endMin,
+          presentStates, timelineItems, records: [], presRecords: [], npRecords: [], vacRecords: [], maxVisMin: sched.endMin,
           searchHay: normalizeKey(
             `${prof.usuario} ${prof.matricula} ${prof.fullName} ${prof.dni} ${fecha} ${prof.campana} ${prof.turnoReal} ${sched.label} ` +
             `sin registro ausencia sin registrar falta alerta ${obsTxt}`
