@@ -58,6 +58,7 @@ const KNOWN_STATES = {
   NP_JUSTIFICADA: { key: 'NP_JUSTIFICADA', label: 'No Pres. Justificada', short: 'Justificada', color: '#4f46e5', soft: '#eef2ff', border: '#c7d2fe', text: '#3730a3', stripedIndigo: true, order: 70 },
   NP_NO_JUSTIFICADA: { key: 'NP_NO_JUSTIFICADA', label: 'No Pres. No Justificada', short: 'Falta / NJ', color: '#be123c', soft: '#ffe4e6', border: '#fda4af', text: '#881337', stripedCrimson: true, order: 71 },
   NO_PAGABLE: { key: 'NO_PAGABLE', label: 'No Pagable', short: 'No Pag.', color: '#94a3b8', soft: '#f8fafc', border: '#cbd5e1', text: '#475569', order: 90 },
+  SIN_REGISTRO: { key: 'SIN_REGISTRO', label: 'Sin registro (Ausencia)', short: 'Sin registro', color: '#dc2626', soft: '#fef2f2', border: '#fca5a5', text: '#991b1b', stripedAlert: true, order: 94 },
   DESCONEXION: { key: 'DESCONEXION', label: 'Desconexión (Hueco)', short: 'Hueco', color: '#e11d48', soft: '#fff1f2', border: '#fda4af', text: '#9f1239', striped: true, order: 95 },
   SALIDA_ANTICIPADA: { key: 'SALIDA_ANTICIPADA', label: 'Salida anticipada', short: 'Salida ant.', color: '#ea580c', soft: '#ffedd5', border: '#fdba74', text: '#9a3412', stripedOrange: true, order: 96 },
   INGRESO_TARDIO: { key: 'INGRESO_TARDIO', label: 'Ingreso tardío', short: 'Tardío', color: '#d97706', soft: '#fef3c7', border: '#fcd34d', text: '#92400e', stripedOrange: true, order: 97 },
@@ -783,10 +784,15 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
     }
 
     // 2) Salida anticipada & 3) Ingreso tardío SIN registro (conciliado con No Presenciales)
-    // Solo se evalúa en jornadas con registro presencial (evita falsos positivos en días solo-ausencia o sin archivo presencial)
+    // Se evalúa en jornadas con registro presencial, Y también en jornadas solo-NP de fecha presencial
+    // cuando el registro NP cubre menos de 5h (ausencia parcial sin completar el resto del turno en ningún archivo).
     let earlyExit = null;
     let lateEntry = null;
-    if (hasPresencial) {
+    const npSumForEdge = g.npRecords.reduce((s, r) => s + r.durationMin, 0);
+    const schedTotalMin = Math.max(60, sched.endMin - sched.startMin);
+    const isPartialNpOnPresDate = onlyNoPresencial && presencialDates.has(g.fecha) && npSumForEdge < Math.min(300, schedTotalMin - 60);
+
+    if (hasPresencial || isPartialNpOnPresDate) {
       const coveredEndMin = (connEndMin !== null && npEndMin !== null) ? Math.max(connEndMin, npEndMin) : (connEndMin !== null ? connEndMin : npEndMin);
       const coveredStartMin = (connStartMin !== null && npStartMin !== null) ? Math.min(connStartMin, npStartMin) : (connStartMin !== null ? connStartMin : npStartMin);
 
@@ -955,7 +961,7 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
       fullName: g.fullName, dni: g.dni, fecha: g.fecha, fechaSort: g.fechaSort,
       turnoReal, isSup, campana, groupId,
       sched,
-      hasPresencial, hasNoPresencial, onlyNoPresencial,
+      hasPresencial, hasNoPresencial, onlyNoPresencial, isUnregisteredDay: false,
       isPresencialDate: presencialDates.has(g.fecha),
       startTime, endTime, endNextDay, logStartTime, logEndTime, hasPrePost, npTimeRange,
       onlyNoPagable: hasPresencial && jornadaRecs.length === 0,
@@ -963,7 +969,7 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
       npJustMin, npNoJustMin, npTotalMin, hasRecuperarSi,
       npList: [...npBadgeMap.values()].sort((a, b) => b.minutes - a.minutes),
       gapMin, gapCount: gaps.length, gaps,
-      earlyExit, lateEntry,
+      earlyExit, lateEntry, unregAbsence: null,
       alertMin, alertCount,
       openCount,
       nonProdList: [...nonProdMap.values()].sort((a, b) => b.minutes - a.minutes),
@@ -977,5 +983,112 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
       )
     });
   }
+
+  // PASADA 3: Detectar días completos SIN REGISTRO (operadores/supervisores activos que no figuran
+  // ni en Horas Presenciales ni en Horas No Presenciales en una fecha laborable con archivo presencial).
+  if (presencialDates.size >= 1) {
+    const sortedPresDates = [...presencialDates].sort((a, b) => dateKeyToSort(a) - dateKeyToSort(b));
+    const minPresDateSort = dateKeyToSort(sortedPresDates[0]);
+    const opProfiles = new Map();
+
+    for (const dr of dayRows) {
+      if (!opProfiles.has(dr.opKey)) {
+        opProfiles.set(dr.opKey, {
+          opKey: dr.opKey, usuario: dr.usuario, matricula: dr.matricula,
+          fullName: dr.fullName, dni: dr.dni, isSup: dr.isSup,
+          campana: dr.campana, groupId: dr.groupId, turnoReal: dr.turnoReal,
+          sched: dr.sched,
+          firstDateSort: dr.fechaSort, lastDateSort: dr.fechaSort,
+          lastFechaStr: dr.fecha, dates: new Set(), hasAnyPres: false
+        });
+      }
+      const prof = opProfiles.get(dr.opKey);
+      prof.dates.add(dr.fecha);
+      if (dr.hasPresencial) {
+        prof.hasAnyPres = true;
+        // Priorizar perfil de días presenciales reales (grupo, turno y horario)
+        prof.campana = dr.campana;
+        prof.groupId = dr.groupId;
+        prof.turnoReal = dr.turnoReal;
+        prof.sched = dr.sched;
+      }
+      if (dr.fechaSort < prof.firstDateSort) prof.firstDateSort = dr.fechaSort;
+      if (dr.fechaSort > prof.lastDateSort) { prof.lastDateSort = dr.fechaSort; prof.lastFechaStr = dr.fecha; }
+    }
+
+    for (const prof of opProfiles.values()) {
+      const totalKnownDays = prof.dates.size;
+      if (!prof.hasAnyPres && prof.lastDateSort < minPresDateSort) continue;
+
+      for (const fecha of sortedPresDates) {
+        if (prof.dates.has(fecha)) continue;
+        const fSort = dateKeyToSort(fecha);
+        // No alertar días previos al primer día conocido (evita falsos positivos con ingresos nuevos)
+        if (fSort < prof.firstDateSort) continue;
+        // Si es posterior a su último día registrado, solo alertar si tiene historial (>=2 días en el dataset)
+        if (fSort > prof.lastDateSort && totalKnownDays < 2) continue;
+
+        const p = fecha.split('/');
+        const dayStartMs = p.length === 3 ? new Date(parseInt(p[2], 10), parseInt(p[1], 10) - 1, parseInt(p[0], 10), 0, 0, 0).getTime() : 0;
+        const sched = prof.sched;
+        const durMin = Math.max(60, Math.round(sched.endMin - sched.startMin));
+        const sMs = dayStartMs + sched.startMin * 60000;
+        const eMs = dayStartMs + sched.endMin * 60000;
+        const startStr = fmtClock(sched.startMin);
+        const endStr = fmtClock(sched.endMin);
+        const isPostLast = fSort > prof.lastDateSort;
+        const obsTxt = isPostLast
+          ? `Sin registro presencial ni no presencial (último registro previo: ${prof.lastFechaStr}). Verificar si falta cargar ausencia/justificación o si es cese.`
+          : `Sin registro presencial ni no presencial en esta jornada laboral (activo antes y después en el periodo). Falta registrar ausencia o justificación.`;
+
+        const unregAbsence = {
+          type: 'unreg_absence',
+          startMs: sMs, endMs: eMs,
+          sMin: sched.startMin, eMin: sched.endMin,
+          startTime: startStr, endTime: endStr,
+          durationMin: durMin,
+          isPostLast
+        };
+
+        const presentStates = new Set(['SIN_REGISTRO']);
+        const timelineItems = [{
+          kind: 'unreg_absence',
+          stateKey: 'SIN_REGISTRO',
+          startMs: sMs, endMs: eMs,
+          sMin: sched.startMin, eMin: sched.endMin,
+          startTime: startStr, endTime: endStr,
+          durationMin: durMin,
+          isOpen: false,
+          obs: obsTxt
+        }];
+
+        dayRows.push({
+          rowKey: `${prof.opKey}__${fecha}`,
+          opKey: prof.opKey, usuario: prof.usuario, matricula: prof.matricula,
+          fullName: prof.fullName, dni: prof.dni, fecha, fechaSort: fSort,
+          turnoReal: prof.turnoReal, isSup: prof.isSup, campana: prof.campana, groupId: prof.groupId,
+          sched,
+          hasPresencial: false, hasNoPresencial: false, onlyNoPresencial: false, isUnregisteredDay: true,
+          isPresencialDate: true,
+          startTime: '—', endTime: '—', endNextDay: false, logStartTime: '', logEndTime: '', hasPrePost: false, npTimeRange: '',
+          onlyNoPagable: false,
+          startMinSort: sched.startMin, prodMin: 0, nonProdMin: 0, noPagMin: 0,
+          npJustMin: 0, npNoJustMin: 0, npTotalMin: 0, hasRecuperarSi: false,
+          npList: [],
+          gapMin: 0, gapCount: 0, gaps: [],
+          earlyExit: null, lateEntry: null, unregAbsence,
+          alertMin: durMin, alertCount: 1,
+          openCount: 0,
+          nonProdList: [],
+          presentStates, timelineItems, records: [], presRecords: [], npRecords: [], maxVisMin: sched.endMin,
+          searchHay: normalizeKey(
+            `${prof.usuario} ${prof.matricula} ${prof.fullName} ${prof.dni} ${fecha} ${prof.campana} ${prof.turnoReal} ${sched.label} ` +
+            `sin registro ausencia sin registrar falta alerta ${obsTxt}`
+          )
+        });
+      }
+    }
+  }
+
   return dayRows;
 }

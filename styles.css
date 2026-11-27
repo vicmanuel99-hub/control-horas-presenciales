@@ -495,6 +495,9 @@ body {
 .st-dot.striped-crimson {
   background: repeating-linear-gradient(135deg, #be123c, #be123c 2px, #9f1239 2px, #9f1239 4px);
 }
+.st-dot.striped-alert {
+  background: repeating-linear-gradient(45deg, #dc2626, #dc2626 2px, #fee2e2 2px, #fee2e2 4px);
+}
 
 /* TABLA PRINCIPAL LIMPIA */
 .board {
@@ -692,6 +695,11 @@ tr.expanded .caret { transform: rotate(90deg); color: var(--accent); }
   border: 1px solid #881337;
   z-index: 4;
 }
+.tl-seg.is-unreg {
+  background: repeating-linear-gradient(45deg, #dc2626, #dc2626 6px, #fca5a5 6px, #fca5a5 12px) !important;
+  border: 1.5px solid #991b1b;
+  z-index: 5;
+}
 .tl-seg.is-open { border: 2px dashed #db2777; }
 .tl-seg.is-dim { opacity: 0.2; }
 
@@ -737,6 +745,13 @@ tr.expanded .caret { transform: rotate(90deg); color: var(--accent); }
   color: #92400e;
   border-color: #fcd34d;
 }
+.gap-pill.unreg-pill {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #f87171;
+  font-weight: 800;
+}
+.np-tag-unreg { background: #fee2e2; color: #991b1b; border: 1px solid #f87171; }
 .muted-dash { color: #cbd5e1; }
 
 .hrs-cell { text-align: right; white-space: nowrap; }
