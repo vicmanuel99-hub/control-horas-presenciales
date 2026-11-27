@@ -1,12 +1,14 @@
 'use strict';
 
-// CARGA DUAL, PERSISTENCIA Y GUARDADO
-function saveStorage(presRecs, npRecs, meta) {
+// CARGA TRIPLE, PERSISTENCIA Y GUARDADO
+function saveStorage(presRecs, npRecs, vacRecs, meta) {
   try {
     const compactP = (presRecs || []).map(r => [r.usuario, r.matricula, r.nombre, r.apellidos, r.dni, r.tipo, r.subTipo, r.servicio, '', r.motivo, r.obs, r.conexionStr, r.desconexionStr, r.horasStr, r.cerrado, r.usuarioEdit, r.fechaEdit]);
     const compactNP = (npRecs || []).map(r => [r.usuario, r.matricula, r.nombre, r.apellidos, r.dni, r.tipo, r.motivo, r.conexionStr, r.desconexionStr, r.horasStr, r.recuperarH, r.obs]);
+    const compactVac = (vacRecs || []).map(r => ['P', r.usuario, r.nombre, r.apellidos, r.fecha, r.vacHoraStr || '', r.vacHoras ?? 8, r.vacTurno || 'V', r.servicio === '-' ? '' : r.servicio, r.vacEstado || 'Aceptado', r.vacTipo || 'V. Normales', r.fechaSolicitudStr || '']);
     localStorage.setItem(STORAGE_KEY_P, JSON.stringify(compactP));
     localStorage.setItem(STORAGE_KEY_NP, JSON.stringify(compactNP));
+    localStorage.setItem(STORAGE_KEY_VAC, JSON.stringify(compactVac));
     localStorage.setItem(META_KEY, JSON.stringify(meta));
   } catch {}
 }
@@ -15,44 +17,50 @@ function loadStorage() {
   try {
     const rawP = localStorage.getItem(STORAGE_KEY_P);
     const rawNP = localStorage.getItem(STORAGE_KEY_NP);
-    if (!rawP && !rawNP) return null;
+    const rawVac = localStorage.getItem(STORAGE_KEY_VAC);
+    if (!rawP && !rawNP && !rawVac) return null;
     const compactP = rawP ? JSON.parse(rawP) : [];
     const compactNP = rawNP ? JSON.parse(rawNP) : [];
-    if ((!Array.isArray(compactP) || !compactP.length) && (!Array.isArray(compactNP) || !compactNP.length)) return null;
+    const compactVac = rawVac ? JSON.parse(rawVac) : [];
+    if ((!Array.isArray(compactP) || !compactP.length) && (!Array.isArray(compactNP) || !compactNP.length) && (!Array.isArray(compactVac) || !compactVac.length)) return null;
     const headerP = ['Usuario', 'Matrícula', 'Nombre', 'Apellidos', 'DNI', 'Tipo', 'SubTipo', 'Servicio', 'Tarea', 'Motivo no productivo', 'Observaciones', 'Conexión', 'Desconexión', 'Horas', 'Cerrado', 'Usuario Edit', 'Fecha Edit'];
     const headerNP = ['Usuario', 'Matrícula', 'Nombre', 'Apellidos', 'DNI', 'Tipo', 'Motivo', 'Inicio', 'Fin', 'Horas', 'Recuperar H.', 'Observaciones'];
+    const headerVac = ['P', 'Usuario', 'Nombre', 'Apellidos', 'Fecha', 'Hora', 'J.', 'Turno', 'Servicio', 'Estado', 'Tipo', 'Fecha Solicitud'];
     return {
       presencial: Array.isArray(compactP) && compactP.length ? matrixToRecords([headerP, ...compactP]) : [],
       noPresencial: Array.isArray(compactNP) && compactNP.length ? matrixToNoPresencialRecords([headerNP, ...compactNP]) : [],
+      vacaciones: Array.isArray(compactVac) && compactVac.length ? matrixToVacacionesRecords([headerVac, ...compactVac]) : [],
       meta: JSON.parse(localStorage.getItem(META_KEY) || '{}')
     };
   } catch { return null; }
 }
 
-function applyDatasets(presRecs, npRecs, meta, persist = true) {
+function applyDatasets(presRecs, npRecs, vacRecs, meta, persist = true) {
   state.presencialRecords = presRecs || [];
   state.noPresencialRecords = npRecs || [];
+  state.vacacionesRecords = vacRecs || [];
   state.meta = {
     pSource: meta?.pSource || '',
-    npSource: meta?.npSource || ''
+    npSource: meta?.npSource || '',
+    vacSource: meta?.vacSource || ''
   };
   state.expandedKeys.clear();
   state.filters.fecha = 'LATEST';
   state.filters.selectedStates.clear();
-  if (persist) saveStorage(state.presencialRecords, state.noPresencialRecords, state.meta);
+  if (persist) saveStorage(state.presencialRecords, state.noPresencialRecords, state.vacacionesRecords, state.meta);
   recompute();
 }
 
 async function loadBaseCSV(force = false) {
   if (!force) {
     const cached = loadStorage();
-    if (cached && (cached.presencial.length || cached.noPresencial.length)) {
-      applyDatasets(cached.presencial, cached.noPresencial, cached.meta, false);
+    if (cached && (cached.presencial.length || cached.noPresencial.length || cached.vacaciones.length)) {
+      applyDatasets(cached.presencial, cached.noPresencial, cached.vacaciones, cached.meta, false);
       return;
     }
   }
   const bust = '?t=' + Date.now();
-  let pres = [], np = [], pSrc = '', npSrc = '';
+  let pres = [], np = [], vac = [], pSrc = '', npSrc = '', vacSrc = '';
   await Promise.all([
     fetch('./datos_iniciales.csv' + bust).then(async res => {
       if (!res.ok) return;
@@ -63,19 +71,25 @@ async function loadBaseCSV(force = false) {
       if (!res.ok) return;
       const parsed = matrixToNoPresencialRecords(parseCSV(await res.text()));
       if (parsed.length) { np = parsed; npSrc = 'datos_no_presenciales.csv'; }
+    }).catch(() => {}),
+    fetch('./datos_vacaciones.csv' + bust).then(async res => {
+      if (!res.ok) return;
+      const parsed = matrixToVacacionesRecords(parseCSV(await res.text()));
+      if (parsed.length) { vac = parsed; vacSrc = 'datos_vacaciones.csv'; }
     }).catch(() => {})
   ]);
 
-  if (pres.length || np.length) {
+  if (pres.length || np.length || vac.length) {
     localStorage.removeItem(STORAGE_KEY_P);
     localStorage.removeItem(STORAGE_KEY_NP);
+    localStorage.removeItem(STORAGE_KEY_VAC);
     localStorage.removeItem(META_KEY);
-    applyDatasets(pres, np, { pSource: pSrc, npSource: npSrc }, false);
+    applyDatasets(pres, np, vac, { pSource: pSrc, npSource: npSrc, vacSource: vacSrc }, false);
     if (force) {
-      showBanner(`Base restaurada: ${pres.length.toLocaleString('es-PE')} presenciales + ${np.length.toLocaleString('es-PE')} no presenciales.`, 'ok');
+      showBanner(`Base restaurada: ${pres.length.toLocaleString('es-PE')} presenciales + ${np.length.toLocaleString('es-PE')} no presenciales + ${vac.length.toLocaleString('es-PE')} vacaciones.`, 'ok');
     }
   } else {
-    showBanner('Haz clic en "Subir Excel (1 o 2)" o arrastra ambos archivos sobre la pantalla.', 'warn');
+    showBanner('Haz clic en "Subir Excel (1 a 3)" o arrastra los archivos sobre la pantalla.', 'warn');
     recompute();
   }
 }
@@ -108,11 +122,13 @@ function summarizeRange(records) {
   return dates.length === 1 ? dates[0] : `${dates[0]} al ${dates[dates.length - 1]}`;
 }
 
-function commitIncomingDatasets(incP, incNP, pNames, npNames, mode) {
+function commitIncomingDatasets(incP, incNP, incVac, pNames, npNames, vacNames, mode) {
   let finalP = state.presencialRecords;
   let finalNP = state.noPresencialRecords;
+  let finalVac = state.vacacionesRecords;
   let pSrc = state.meta.pSource;
   let npSrc = state.meta.npSource;
+  let vacSrc = state.meta.vacSource;
   const msgs = [];
 
   if (incP && incP.length) {
@@ -139,7 +155,19 @@ function commitIncomingDatasets(incP, incNP, pNames, npNames, mode) {
       msgs.push(`No Presenciales: ${finalNP.length.toLocaleString('es-PE')} reg.`);
     }
   }
-  applyDatasets(finalP, finalNP, { pSource: pSrc, npSource: npSrc }, true);
+  if (incVac && incVac.length) {
+    if (mode === 'merge' && state.vacacionesRecords.length) {
+      const res = mergeUnique(state.vacacionesRecords, incVac, r => [r.usuario, r.fecha, r.vacTipo, r.vacEstado].join('|'));
+      finalVac = res.list;
+      vacSrc = vacSrc ? `${vacSrc} + ${vacNames.join(', ')}` : vacNames.join(', ');
+      msgs.push(`Vacaciones: +${res.added.toLocaleString('es-PE')} nuevos`);
+    } else {
+      finalVac = incVac;
+      vacSrc = vacNames.join(', ');
+      msgs.push(`Vacaciones: ${finalVac.length.toLocaleString('es-PE')} reg.`);
+    }
+  }
+  applyDatasets(finalP, finalNP, finalVac, { pSource: pSrc, npSource: npSrc, vacSource: vacSrc }, true);
   showBanner(`Datos unificados correctamente · ${msgs.join(' · ')}.`, 'ok');
 }
 
@@ -148,28 +176,29 @@ async function handleFiles(filesList) {
   const files = Array.from(filesList || []);
   if (!files.length) return;
   const mode = $('upload-mode').value;
-  let incP = [], incNP = [], pNames = [], npNames = [];
+  let incP = [], incNP = [], incVac = [], pNames = [], npNames = [], vacNames = [];
 
   for (const f of files) {
     try {
       const matrix = await readFileToMatrix(f);
       const { kind, records } = parseAnyMatrix(matrix);
       if (!records.length) { showBanner(`Sin registros válidos en ${f.name}.`, 'warn'); continue; }
-      if (kind === 'NO_PRESENCIAL') { incNP = incNP.concat(records); npNames.push(f.name); }
+      if (kind === 'VACACIONES') { incVac = incVac.concat(records); vacNames.push(f.name); }
+      else if (kind === 'NO_PRESENCIAL') { incNP = incNP.concat(records); npNames.push(f.name); }
       else { incP = incP.concat(records); pNames.push(f.name); }
     } catch (err) {
       showBanner(`Error leyendo ${f.name}: ${err.message}`, 'err');
       return;
     }
   }
-  if (!incP.length && !incNP.length) {
+  if (!incP.length && !incNP.length && !incVac.length) {
     showBanner('No se encontraron registros válidos en los archivos seleccionados.', 'err');
     return;
   }
-  commitIncomingDatasets(incP, incNP, pNames, npNames, mode);
+  commitIncomingDatasets(incP, incNP, incVac, pNames, npNames, vacNames, mode);
 }
 
-// MODAL DE CARGA SIMULTANEA
+// MODAL DE CARGA SIMULTANEA (HASTA 3 ARCHIVOS)
 function showModalMsg(txt, type = 'info') {
   const el = $('modal-msg');
   if (!txt) { el.style.display = 'none'; return; }
@@ -185,8 +214,10 @@ function showModalMsg(txt, type = 'info') {
 function renderModalSlots() {
   const sp = state.modalStaged.p;
   const snp = state.modalStaged.np;
+  const svac = state.modalStaged.vac;
   const slotP = $('slot-presencial');
   const slotNP = $('slot-nopresencial');
+  const slotVac = $('slot-vacaciones');
 
   if (sp) {
     slotP.classList.add('has-file');
@@ -212,11 +243,23 @@ function renderModalSlots() {
     $('btn-clear-np').style.display = 'none';
   }
 
-  $('btn-apply-modal').disabled = !(sp || snp);
+  if (svac) {
+    slotVac.classList.add('has-file');
+    $('slot-vac-status').innerHTML = `<strong style="color:#115e59;">✓ ${escapeHtml(svac.names.join(', '))}</strong><span>${svac.records.length.toLocaleString('es-PE')} registros · ${escapeHtml(summarizeRange(svac.records))}</span>`;
+    $('btn-clear-vac').style.display = 'inline-flex';
+  } else {
+    slotVac.classList.remove('has-file');
+    $('slot-vac-status').innerHTML = state.vacacionesRecords.length
+      ? `<span style="color:#475569;">Actual: <strong>${escapeHtml(state.meta.vacSource || 'Cargado')}</strong> (${state.vacacionesRecords.length.toLocaleString('es-PE')} reg.)</span><span style="font-size:10.5px;color:#64748b;">Se conservará si no eliges uno nuevo</span>`
+      : `<span style="color:#94a3b8;">Ningún archivo nuevo seleccionado</span>`;
+    $('btn-clear-vac').style.display = 'none';
+  }
+
+  $('btn-apply-modal').disabled = !(sp || snp || svac);
 }
 
 function openUploadModal() {
-  state.modalStaged = { p: null, np: null };
+  state.modalStaged = { p: null, np: null, vac: null };
   $('modal-upload-mode').value = $('upload-mode').value;
   showModalMsg('');
   renderModalSlots();
@@ -225,14 +268,14 @@ function openUploadModal() {
 
 function closeUploadModal() {
   $('upload-modal').classList.remove('show');
-  state.modalStaged = { p: null, np: null };
+  state.modalStaged = { p: null, np: null, vac: null };
 }
 
 async function stageFilesInModal(filesList, forcedKind = null) {
   const files = Array.from(filesList || []);
   if (!files.length) return;
   showModalMsg('');
-  let foundP = [], pNames = [], foundNP = [], npNames = [];
+  let foundP = [], pNames = [], foundNP = [], npNames = [], foundVac = [], vacNames = [];
   for (const f of files) {
     try {
       const matrix = await readFileToMatrix(f);
@@ -241,7 +284,8 @@ async function stageFilesInModal(filesList, forcedKind = null) {
         showModalMsg(`No se encontraron filas válidas en "${f.name}". Verifica que coincida con el tipo de archivo.`, 'err');
         return;
       }
-      if (kind === 'NO_PRESENCIAL') { foundNP = foundNP.concat(records); npNames.push(f.name); }
+      if (kind === 'VACACIONES') { foundVac = foundVac.concat(records); vacNames.push(f.name); }
+      else if (kind === 'NO_PRESENCIAL') { foundNP = foundNP.concat(records); npNames.push(f.name); }
       else { foundP = foundP.concat(records); pNames.push(f.name); }
     } catch (err) {
       showModalMsg(`Error leyendo "${f.name}": ${err.message}`, 'err');
@@ -250,10 +294,12 @@ async function stageFilesInModal(filesList, forcedKind = null) {
   }
   if (foundP.length) state.modalStaged.p = { records: foundP, names: pNames };
   if (foundNP.length) state.modalStaged.np = { records: foundNP, names: npNames };
+  if (foundVac.length) state.modalStaged.vac = { records: foundVac, names: vacNames };
   renderModalSlots();
   const ready = [];
   if (state.modalStaged.p) ready.push(`Presenciales (${state.modalStaged.p.records.length})`);
   if (state.modalStaged.np) ready.push(`No Presenciales (${state.modalStaged.np.records.length})`);
+  if (state.modalStaged.vac) ready.push(`Vacaciones (${state.modalStaged.vac.records.length})`);
   if (ready.length) showModalMsg(`Listo para unificar: ${ready.join(' + ')}. Haz clic en "Unificar y Cargar".`, 'ok');
 }
 
@@ -265,6 +311,7 @@ function exportCSV() {
     'Fecha', 'Rol', 'Grupo', 'Horario Habitual', 'Usuario', 'Nombre', 'Inicio', 'Fin',
     'Presencial', 'Otros Estados', 'Detalle Estados',
     'No Pres. Justificadas', 'No Pres. No Justificadas', 'Recuperar H.', 'Detalle No Presencial',
+    'Vacaciones', 'Detalle Vacaciones',
     'Alertas Sin Registro', 'Tiempo Sin Registro', 'Detalle Alertas (Ausencia / Salida Ant. / Tardío)', 'Sin Cerrar'
   ];
   const body = rows.map(d => {
@@ -274,11 +321,13 @@ function exportCSV() {
       ...(d.earlyExit ? [`Salida ant. ${d.earlyExit.startTime}-${d.earlyExit.endTime} (${fmtHM(d.earlyExit.durationMin)})`] : [])
     ].join(' | ');
     const npDet = d.npRecords.map(r => `${r.tipo} - ${r.motivo} ${r.startTimeStr}-${r.endTimeStr} (${fmtHM(r.durationMin)})`).join(' | ');
+    const vacDet = (d.vacRecords || []).map(r => `${r.vacTipo} (${r.vacEstado}) ${fmtHM(r.durationMin)}`).join(' | ');
     return [
       d.fecha, d.isSup ? 'Supervisor' : 'Operador', GROUP_MAP[d.groupId]?.label || d.groupId, d.sched.label, d.usuario, d.fullName,
       d.startTime, d.endTime || 'Abierta',
       fmtClock(d.prodMin), fmtClock(d.nonProdMin), d.nonProdList.map(x => `${x.stateKey}: ${fmtHM(x.minutes)}`).join(' | '),
       fmtClock(d.npJustMin), fmtClock(d.npNoJustMin), d.hasNoPresencial ? (d.hasRecuperarSi ? 'SI' : 'NO') : '', npDet,
+      d.hasVacacion ? fmtClock(d.vacMin) : '', vacDet,
       d.alertCount, fmtClock(d.alertMin), det, d.openCount
     ];
   });
@@ -312,18 +361,26 @@ function bindEvents() {
   $('btn-pick-both').addEventListener('click', () => $('file-input-both').click());
   $('btn-pick-p').addEventListener('click', () => $('file-input-p').click());
   $('btn-pick-np').addEventListener('click', () => $('file-input-np').click());
+  $('btn-pick-vac').addEventListener('click', () => $('file-input-vac').click());
   $('file-input-both').addEventListener('change', e => { stageFilesInModal(e.target.files, null); e.target.value = ''; });
   $('file-input-p').addEventListener('change', e => { stageFilesInModal(e.target.files, 'PRESENCIAL'); e.target.value = ''; });
   $('file-input-np').addEventListener('change', e => { stageFilesInModal(e.target.files, 'NO_PRESENCIAL'); e.target.value = ''; });
+  $('file-input-vac').addEventListener('change', e => { stageFilesInModal(e.target.files, 'VACACIONES'); e.target.value = ''; });
   $('btn-clear-p').addEventListener('click', () => { state.modalStaged.p = null; renderModalSlots(); });
   $('btn-clear-np').addEventListener('click', () => { state.modalStaged.np = null; renderModalSlots(); });
+  $('btn-clear-vac').addEventListener('click', () => { state.modalStaged.vac = null; renderModalSlots(); });
   $('btn-apply-modal').addEventListener('click', () => {
     const sp = state.modalStaged.p;
     const snp = state.modalStaged.np;
-    if (!sp && !snp) return;
+    const svac = state.modalStaged.vac;
+    if (!sp && !snp && !svac) return;
     const mode = $('modal-upload-mode').value;
     closeUploadModal();
-    commitIncomingDatasets(sp?.records || [], snp?.records || [], sp?.names || [], snp?.names || [], mode);
+    commitIncomingDatasets(
+      sp?.records || [], snp?.records || [], svac?.records || [],
+      sp?.names || [], snp?.names || [], svac?.names || [],
+      mode
+    );
   });
 
   // Drag & drop dentro de los slots del modal
@@ -339,6 +396,7 @@ function bindEvents() {
   bindZoneDrop($('dual-quick-zone'), null);
   bindZoneDrop($('slot-presencial'), 'PRESENCIAL');
   bindZoneDrop($('slot-nopresencial'), 'NO_PRESENCIAL');
+  bindZoneDrop($('slot-vacaciones'), 'VACACIONES');
 
   // Drag & drop global sobre la ventana (cuando el modal está cerrado)
   let dragC = 0;
