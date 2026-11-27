@@ -5,44 +5,44 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Control de Horas Presenciales y Desconexiones</title>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="./styles.css?v=7" />
+  <link rel="stylesheet" href="./styles.css?v=8" />
 </head>
 <body>
   <div class="drop-overlay" id="drop-overlay">
     <div class="drop-box">
       <div style="font-size:40px;">📂</div>
-      <h2 style="margin-top:8px;">Suelta 1 o 2 archivos Excel / CSV aquí</h2>
-      <p style="opacity:0.85;margin-top:4px;font-size:13px;">Se detecta automáticamente Horas Presenciales y Horas No Presenciales para unificar las líneas de tiempo.</p>
+      <h2 style="margin-top:8px;">Suelta 1, 2 o 3 archivos Excel / CSV aquí</h2>
+      <p style="opacity:0.85;margin-top:4px;font-size:13px;">Se detectan automáticamente Horas Presenciales, No Presenciales y Vacaciones para unificar las líneas de tiempo.</p>
     </div>
   </div>
 
-  <!-- MODAL DE CARGA SIMULTANEA (2 EXCEL) -->
+  <!-- MODAL DE CARGA SIMULTANEA (3 EXCEL) -->
   <div class="modal-backdrop" id="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-modal-title">
     <div class="modal-card">
       <div class="modal-head">
         <div>
           <h2 id="upload-modal-title">📂 Cargar Archivos Excel / CSV en Simultáneo</h2>
-          <p>Sube ambos archivos juntos o por separado. La información se unifica automáticamente en la misma línea de tiempo.</p>
+          <p>Sube hasta 3 archivos juntos o por separado. La información se unifica automáticamente en la misma línea de tiempo.</p>
         </div>
         <button class="btn btn-xs" id="btn-close-modal" title="Cerrar">✕</button>
       </div>
       <div class="modal-body">
         <div class="dual-quick-zone" id="dual-quick-zone">
           <div>
-            <div style="font-size:13px;font-weight:800;color:#1e3a8a;">⚡ Subida rápida simultánea (2 archivos a la vez)</div>
-            <div style="font-size:11.5px;color:#3b82f6;margin-top:2px;">Selecciona o arrastra ambos Excel juntos; el sistema reconoce automáticamente cuál es Presencial y cuál es No Presencial.</div>
+            <div style="font-size:13px;font-weight:800;color:#1e3a8a;">⚡ Subida rápida simultánea (hasta 3 archivos a la vez)</div>
+            <div style="font-size:11.5px;color:#3b82f6;margin-top:2px;">Selecciona o arrastra tus Excel juntos; el sistema reconoce automáticamente Presenciales, No Presenciales y Vacaciones.</div>
           </div>
           <input type="file" id="file-input-both" accept=".csv,.xlsx,.xls,.txt" multiple hidden />
-          <button class="btn btn-primary" id="btn-pick-both">📂 Seleccionar 2 archivos</button>
+          <button class="btn btn-primary" id="btn-pick-both">📂 Seleccionar archivos (1 a 3)</button>
         </div>
 
         <div class="dual-slots">
           <div class="upload-slot slot-p" id="slot-presencial">
             <div class="slot-title">
-              <span>🟢 1. Horas Presenciales</span>
-              <span class="np-tag-inline" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;">Sede / Conexión</span>
+              <span>🟢 1. Presenciales</span>
+              <span class="np-tag-inline" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;">Sede</span>
             </div>
-            <div class="slot-desc">Columnas: Usuario, Tipo, SubTipo, Servicio, Conexión, Desconexión, Horas...</div>
+            <div class="slot-desc">Usuario, Tipo, SubTipo, Servicio, Conexión, Desconexión, Horas...</div>
             <div class="slot-status" id="slot-p-status">Sin archivo seleccionado</div>
             <div class="slot-actions">
               <input type="file" id="file-input-p" accept=".csv,.xlsx,.xls,.txt" multiple hidden />
@@ -53,15 +53,29 @@
 
           <div class="upload-slot slot-np" id="slot-nopresencial">
             <div class="slot-title">
-              <span>🟣 2. Horas No Presenciales</span>
+              <span>🟣 2. No Presenciales</span>
               <span class="np-tag-inline np-tag-just">Faltas / Justif.</span>
             </div>
-            <div class="slot-desc">Columnas: Usuario, Tipo (Just./No Just.), Motivo, Inicio, Fin, Horas, Recuperar H....</div>
+            <div class="slot-desc">Usuario, Tipo (Just./No Just.), Motivo, Inicio, Fin, Horas, Recuperar H....</div>
             <div class="slot-status" id="slot-np-status">Sin archivo seleccionado</div>
             <div class="slot-actions">
               <input type="file" id="file-input-np" accept=".csv,.xlsx,.xls,.txt" multiple hidden />
-              <button class="btn btn-xs btn-primary" id="btn-pick-np" style="background:#4f46e5;border-color:#4f46e5;">Elegir No Presenciales</button>
+              <button class="btn btn-xs btn-primary" id="btn-pick-np" style="background:#4f46e5;border-color:#4f46e5;">Elegir No Pres.</button>
               <button class="btn btn-xs" id="btn-clear-np" style="display:none;">Quitar</button>
+            </div>
+          </div>
+
+          <div class="upload-slot slot-vac" id="slot-vacaciones">
+            <div class="slot-title">
+              <span>🏖️ 3. Vacaciones</span>
+              <span class="np-tag-inline np-tag-vac">Aceptado</span>
+            </div>
+            <div class="slot-desc">Usuario, Nombre, Apellidos, Fecha, J., Turno, Estado, Tipo, Fecha Solicitud...</div>
+            <div class="slot-status" id="slot-vac-status">Sin archivo seleccionado</div>
+            <div class="slot-actions">
+              <input type="file" id="file-input-vac" accept=".csv,.xlsx,.xls,.txt" multiple hidden />
+              <button class="btn btn-xs btn-primary" id="btn-pick-vac" style="background:#0d9488;border-color:#0d9488;">Elegir Vacaciones</button>
+              <button class="btn btn-xs" id="btn-clear-vac" style="display:none;">Quitar</button>
             </div>
           </div>
         </div>
@@ -106,7 +120,7 @@
           <option value="merge">Fusionar</option>
         </select>
         <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.txt" multiple hidden />
-        <button class="btn btn-primary" id="btn-upload">📂 Subir Excel (1 o 2)</button>
+        <button class="btn btn-primary" id="btn-upload">📂 Subir Excel (1 a 3)</button>
         <button class="btn" id="btn-export">⬇️ Exportar</button>
         <button class="btn" id="btn-reset" title="Recargar archivos base del repositorio">↺ Base</button>
       </div>
@@ -229,6 +243,7 @@
               <button class="raw-origin-btn active" data-origin="ALL">Todos</button>
               <button class="raw-origin-btn" data-origin="PRESENCIAL">🟢 Presenciales</button>
               <button class="raw-origin-btn" data-origin="NO_PRESENCIAL">🟣 No Presenciales</button>
+              <button class="raw-origin-btn" data-origin="VACACIONES">🏖️ Vacaciones</button>
             </div>
             <select class="select-clean" id="raw-page-size" style="padding:4px 8px;font-size:11.5px;">
               <option value="50">50 / pág</option>
@@ -267,8 +282,8 @@
     </section>
   </main>
 
-  <script src="./engine.js?v=7"></script>
-  <script src="./render.js?v=7"></script>
-  <script src="./app.js?v=7"></script>
+  <script src="./engine.js?v=8"></script>
+  <script src="./render.js?v=8"></script>
+  <script src="./app.js?v=8"></script>
 </body>
 </html>

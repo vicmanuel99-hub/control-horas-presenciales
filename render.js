@@ -2,8 +2,8 @@
 
 function recompute() {
   const f = state.filters;
-  state.rawRecords = [...state.presencialRecords, ...state.noPresencialRecords];
-  const allDayRows = buildOperatorDayRows(state.presencialRecords, state.noPresencialRecords, f.minGap);
+  state.rawRecords = [...state.presencialRecords, ...state.noPresencialRecords, ...state.vacacionesRecords];
+  const allDayRows = buildOperatorDayRows(state.presencialRecords, state.noPresencialRecords, state.vacacionesRecords, f.minGap);
 
   // Separación por pestaña de Rol (Operadores vs Supervisores)
   const isSupTab = state.role === 'SUPERVISORES';
@@ -13,12 +13,13 @@ function recompute() {
   const dateMap = new Map();
   for (const dr of roleAllRows) {
     if (!dr.fecha) continue;
-    if (!dateMap.has(dr.fecha)) dateMap.set(dr.fecha, { fecha: dr.fecha, sort: dr.fechaSort, ops: 0, gaps: 0, hasPres: false, npCount: 0 });
+    if (!dateMap.has(dr.fecha)) dateMap.set(dr.fecha, { fecha: dr.fecha, sort: dr.fechaSort, ops: 0, gaps: 0, hasPres: false, npCount: 0, vacCount: 0 });
     const d = dateMap.get(dr.fecha);
     d.ops++;
     d.gaps += dr.alertCount;
     if (dr.hasPresencial) d.hasPres = true;
     if (dr.hasNoPresencial) d.npCount++;
+    if (dr.hasVacacion) d.vacCount++;
   }
   const allDates = [...dateMap.values()].sort((a, b) => b.sort - a.sort);
   if (f.fecha === 'LATEST' || (f.fecha !== 'ALL' && !dateMap.has(f.fecha))) {
@@ -47,7 +48,7 @@ function recompute() {
   const activeGroupList = isSupTab ? SUP_GROUPS : GROUPS;
   if (!activeGroupList.some(g => g.id === f.group)) f.group = 'ALL';
   const groupStats = {};
-  for (const g of activeGroupList) groupStats[g.id] = { ops: new Set(), rows: 0, gapOps: new Set(), gapMin: 0, npOps: new Set(), npMin: 0 };
+  for (const g of activeGroupList) groupStats[g.id] = { ops: new Set(), rows: 0, gapOps: new Set(), gapMin: 0, npOps: new Set(), npMin: 0, vacOps: new Set() };
   for (const dr of dateRows) {
     for (const id of ['ALL', dr.groupId]) {
       if (!groupStats[id]) continue;
@@ -60,6 +61,9 @@ function recompute() {
       if (dr.hasNoPresencial) {
         groupStats[id].npOps.add(dr.opKey);
         groupStats[id].npMin += dr.npTotalMin;
+      }
+      if (dr.hasVacacion) {
+        groupStats[id].vacOps.add(dr.opKey);
       }
     }
   }
@@ -110,8 +114,9 @@ function recompute() {
   const filteredRecords = [];
   for (const dr of filteredDayRows) {
     for (const r of dr.records) {
-      if (f.rawOrigin === 'PRESENCIAL' && r.isNoPresencial) continue;
+      if (f.rawOrigin === 'PRESENCIAL' && (r.isNoPresencial || r.isVacacion)) continue;
       if (f.rawOrigin === 'NO_PRESENCIAL' && !r.isNoPresencial) continue;
+      if (f.rawOrigin === 'VACACIONES' && !r.isVacacion) continue;
       r._groupId = dr.groupId;
       if (f.selectedStates.size > 0 && !f.selectedStates.has('SIN_REGISTRO') && !f.selectedStates.has('DESCONEXION') && !f.selectedStates.has('SALIDA_ANTICIPADA') && !f.selectedStates.has('INGRESO_TARDIO')) {
         const match = f.selectedStates.has(r.stateKey) || (f.selectedStates.has('SIN_CERRAR') && r.isOpen);
@@ -130,6 +135,7 @@ function recompute() {
         opKey: dr.opKey, usuario: dr.usuario, matricula: dr.matricula, fullName: dr.fullName,
         groupId: dr.groupId, schedLabel: dr.sched.label, days: [],
         prodMin: 0, nonProdMin: 0, npJustMin: 0, npNoJustMin: 0, npTotalMin: 0,
+        vacDays: 0, vacMin: 0,
         gapMin: 0, gapCount: 0, openCount: 0
       });
     }
@@ -140,6 +146,7 @@ function recompute() {
     op.npJustMin += dr.npJustMin;
     op.npNoJustMin += dr.npNoJustMin;
     op.npTotalMin += dr.npTotalMin;
+    if (dr.hasVacacion) { op.vacDays++; op.vacMin += dr.vacMin; }
     op.gapMin += dr.alertMin;
     op.gapCount += dr.alertCount;
     op.openCount += dr.openCount;
@@ -184,14 +191,19 @@ function renderAll() {
 function renderHeader() {
   const pCnt = state.presencialRecords.length;
   const npCnt = state.noPresencialRecords.length;
+  const vacCnt = state.vacacionesRecords.length;
   const pLbl = state.meta.pSource || 'Sin cargar';
   const npLbl = state.meta.npSource || 'Sin cargar';
+  const vacLbl = state.meta.vacSource || 'Sin cargar';
   $('source-pills').innerHTML = `
     <span class="src-pill ${pCnt ? 'loaded-p' : 'empty-src'}" data-open-upload="1" title="Clic para cargar o actualizar Excel de Horas Presenciales">
       <span class="src-dot"></span>Presenciales: ${escapeHtml(pLbl)}${pCnt ? ` (${pCnt.toLocaleString('es-PE')})` : ''}
     </span>
     <span class="src-pill ${npCnt ? 'loaded-np' : 'empty-src'}" data-open-upload="1" title="Clic para cargar o actualizar Excel de Horas No Presenciales">
       <span class="src-dot"></span>No Presenciales: ${escapeHtml(npLbl)}${npCnt ? ` (${npCnt.toLocaleString('es-PE')})` : ''}
+    </span>
+    <span class="src-pill ${vacCnt ? 'loaded-vac' : 'empty-src'}" data-open-upload="1" title="Clic para cargar o actualizar Excel de Vacaciones">
+      <span class="src-dot"></span>Vacaciones: ${escapeHtml(vacLbl)}${vacCnt ? ` (${vacCnt.toLocaleString('es-PE')})` : ''}
     </span>`;
   const allOps = new Set(state.computed.allDayRows.filter(d => !d.isSup).map(d => d.opKey)).size;
   const allSups = new Set(state.computed.allDayRows.filter(d => d.isSup).map(d => d.opKey)).size;
@@ -217,11 +229,12 @@ function renderGroups() {
   const grid = $('groups-grid');
   grid.classList.toggle('sup-grid', isSup);
   grid.innerHTML = list.map(g => {
-    const st = groupStats[g.id] || { ops: new Set(), gapOps: new Set(), gapMin: 0, npOps: new Set(), npMin: 0 };
+    const st = groupStats[g.id] || { ops: new Set(), gapOps: new Set(), gapMin: 0, npOps: new Set(), npMin: 0, vacOps: new Set() };
     const isAct = cur === g.id;
     const pills = [];
     if (st.gapOps.size > 0) pills.push(`<span class="group-alert-dot" title="Alertas sin registro (Ausencias, Tardanzas, Salidas)">⚠️ ${st.gapOps.size} · ${fmtHM(st.gapMin)}</span>`);
     if (st.npOps.size > 0) pills.push(`<span class="group-np-dot" title="Registros No Presenciales (Justificadas / Faltas)">📋 ${st.npOps.size} · ${fmtHM(st.npMin)}</span>`);
+    if (st.vacOps && st.vacOps.size > 0) pills.push(`<span class="group-vac-dot" title="En vacaciones registradas">🏖️ ${st.vacOps.size}</span>`);
     return `
       <button class="group-tab ${isAct ? 'active' : ''}" data-group="${g.id}"
         style="--g-color:${g.color};--g-soft:${g.soft};--g-text:${g.text};">
@@ -248,9 +261,11 @@ function renderAlertPanel() {
   const unregRows = groupRows.filter(r => r.isUnregisteredDay);
   const npJustRows = groupRows.filter(r => r.npJustMin > 0);
   const npNoJustRows = groupRows.filter(r => r.npNoJustMin > 0);
+  const vacRows = groupRows.filter(r => r.hasVacacion);
   const npJustMin = npJustRows.reduce((s, r) => s + r.npJustMin, 0);
   const npNoJustMin = npNoJustRows.reduce((s, r) => s + r.npNoJustMin, 0);
   const npSummaryPills = `
+    ${vacRows.length ? `<span class="alert-kpi-pill vac-pill" data-quick-state="VACACIONES" title="En vacaciones registradas (no es alerta) · Clic para filtrar">🏖️ ${vacRows.length} Vacaciones</span>` : ''}
     ${npJustRows.length ? `<span class="alert-kpi-pill np-just-pill" data-quick-state="NP_JUSTIFICADA" title="Registrado en No Presenciales (no es alerta) · Clic para filtrar">✓ ${npJustRows.length} Justif. · ${fmtHM(npJustMin)}</span>` : ''}
     ${npNoJustRows.length ? `<span class="alert-kpi-pill np-nojust-pill" data-quick-state="NP_NO_JUSTIFICADA" title="Falta registrada en No Presenciales (documentada) · Clic para filtrar">✕ ${npNoJustRows.length} No Justif. · ${fmtHM(npNoJustMin)}</span>` : ''}`;
 
@@ -316,14 +331,20 @@ function renderDays() {
     `<button class="day-pill ${cur === 'ALL' ? 'active' : ''}" data-day="ALL">Todos los días</button>`,
     ...allDates.map(d => {
       const onlyNp = !d.hasPres && d.npCount > 0;
-      const tip = onlyNp
-        ? `${d.fecha} · Solo No Presenciales (${d.npCount} reg.) — sin archivo presencial de este día`
-        : `${d.fecha} · ${d.ops} registros${d.npCount ? ` · ${d.npCount} con No Pres.` : ''}`;
+      const onlyVac = !d.hasPres && d.npCount === 0 && d.vacCount > 0;
+      const tip = onlyVac
+        ? `${d.fecha} · Solo Vacaciones (${d.vacCount} reg.) — sin archivo presencial de este día`
+        : (onlyNp
+          ? `${d.fecha} · Solo No Presenciales (${d.npCount} reg.${d.vacCount ? ` · ${d.vacCount} Vac.` : ''}) — sin archivo presencial de este día`
+          : `${d.fecha} · ${d.ops} registros${d.npCount ? ` · ${d.npCount} No Pres.` : ''}${d.vacCount ? ` · ${d.vacCount} Vac.` : ''}`);
+      const dot = d.gaps > 0
+        ? '<span class="day-dot"></span>'
+        : (d.npCount > 0 ? '<span class="day-dot-np"></span>' : (d.vacCount > 0 ? '<span class="day-dot-vac"></span>' : ''));
       return `
-        <button class="day-pill ${cur === d.fecha ? 'active' : ''} ${onlyNp ? 'only-np' : ''}" data-day="${escapeHtml(d.fecha)}" title="${escapeHtml(tip)}">
-          ${d.gaps > 0 ? '<span class="day-dot"></span>' : (d.npCount > 0 ? '<span class="day-dot-np"></span>' : '')}
+        <button class="day-pill ${cur === d.fecha ? 'active' : ''} ${onlyNp ? 'only-np' : (onlyVac ? 'only-vac' : '')}" data-day="${escapeHtml(d.fecha)}" title="${escapeHtml(tip)}">
+          ${dot}
           <span>${escapeHtml(formatDayShort(d.fecha))}</span>
-          ${onlyNp ? '<span style="font-size:9.5px;opacity:0.85;">NP</span>' : ''}
+          ${onlyNp ? '<span style="font-size:9.5px;opacity:0.85;">NP</span>' : (onlyVac ? '<span style="font-size:9.5px;opacity:0.85;">Vac</span>' : '')}
         </button>`;
     })
   ];
@@ -339,6 +360,7 @@ function renderLegend() {
     if (stateCounts.has('NP_JUSTIFICADA') || state.noPresencialRecords.some(r => r.isJustificada)) keys.add('NP_JUSTIFICADA');
     if (stateCounts.has('NP_NO_JUSTIFICADA') || state.noPresencialRecords.some(r => !r.isJustificada)) keys.add('NP_NO_JUSTIFICADA');
   }
+  if (state.vacacionesRecords.length || stateCounts.has('VACACIONES')) keys.add('VACACIONES');
   if (stateCounts.has('SIN_REGISTRO')) keys.add('SIN_REGISTRO');
   if (stateCounts.has('DESCONEXION')) keys.add('DESCONEXION');
   if (stateCounts.has('SALIDA_ANTICIPADA')) keys.add('SALIDA_ANTICIPADA');
@@ -350,7 +372,7 @@ function renderLegend() {
     const cnt = stateCounts.get(st.key) || 0;
     const isSel = sel.has(st.key);
     const isDim = sel.size > 0 && !isSel;
-    const dotCls = st.striped ? 'striped' : (st.stripedOrange ? 'striped-orange' : (st.stripedIndigo ? 'striped-indigo' : (st.stripedCrimson ? 'striped-crimson' : (st.stripedAlert ? 'striped-alert' : ''))));
+    const dotCls = st.striped ? 'striped' : (st.stripedOrange ? 'striped-orange' : (st.stripedIndigo ? 'striped-indigo' : (st.stripedCrimson ? 'striped-crimson' : (st.stripedAlert ? 'striped-alert' : (st.stripedTeal ? 'striped-teal' : '')))));
     return `
       <button class="st-pill ${isSel ? 'selected' : ''} ${isDim ? 'dimmed' : ''}" data-state="${escapeHtml(st.key)}"
         style="--st-color:${st.color};--st-soft:${st.soft};--st-border:${st.border};--st-text:${st.text};">
@@ -388,6 +410,7 @@ function buildTimeline(dr, range) {
     grid += `<div class="tl-grid" style="left:${(((m - minM) / span) * 100).toFixed(2)}%;"></div>`;
   }
   const segs = dr.timelineItems.map((it, idx) => {
+    if (it.onTimeline === false) return '';
     if (it.eMin <= minM || it.sMin >= maxM) return '';
     const cs = Math.max(minM, it.sMin), ce = Math.min(maxM, it.eMin);
     const left = ((cs - minM) / span) * 100;
@@ -397,12 +420,13 @@ function buildTimeline(dr, range) {
     const isMissing = it.kind === 'early_exit' || it.kind === 'late_entry';
     const isUnreg = it.kind === 'unreg_absence';
     const isNp = it.kind === 'np_record';
+    const isVac = it.kind === 'vac_record';
     const npCls = isNp ? (it.isJustificada ? 'is-np-just' : 'is-np-nojust') : '';
     const match = sel.size === 0 || sel.has(it.stateKey) || (sel.has('SIN_CERRAR') && it.isOpen);
-    const segLabel = isUnreg ? '⚠️ Sin registro' : (isNp ? `${it.isJustificada ? '✓' : '✕'} ${it.shortLabel}` : st.short);
-    const showLbl = width >= (isNp || isUnreg ? 9 : 12) && !isGap && it.stateKey !== 'PRODUCTIVO' && it.stateKey !== 'NO_PAGABLE';
-    const z = (isGap || isMissing || isUnreg) ? 5 : (isNp ? 4 : (it.stateKey === 'PRODUCTIVO' ? 2 : (it.stateKey === 'NO_PAGABLE' ? 1 : 3)));
-    return `<div class="tl-seg ${isGap ? 'is-gap' : ''} ${isMissing ? 'is-missing' : ''} ${isUnreg ? 'is-unreg' : ''} ${npCls} ${it.isOpen ? 'is-open' : ''} ${!match ? 'is-dim' : ''}"
+    const segLabel = isUnreg ? '⚠️ Sin registro' : (isVac ? `🏖️ ${it.shortLabel}` : (isNp ? `${it.isJustificada ? '✓' : '✕'} ${it.shortLabel}` : st.short));
+    const showLbl = width >= (isNp || isUnreg || isVac ? 9 : 12) && !isGap && it.stateKey !== 'PRODUCTIVO' && it.stateKey !== 'NO_PAGABLE';
+    const z = (isGap || isMissing || isUnreg) ? 5 : (isNp || isVac ? 4 : (it.stateKey === 'PRODUCTIVO' ? 2 : (it.stateKey === 'NO_PAGABLE' ? 1 : 3)));
+    return `<div class="tl-seg ${isGap ? 'is-gap' : ''} ${isMissing ? 'is-missing' : ''} ${isUnreg ? 'is-unreg' : ''} ${isVac ? 'is-vac' : ''} ${npCls} ${it.isOpen ? 'is-open' : ''} ${!match ? 'is-dim' : ''}"
       style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;background:${st.color};z-index:${z};"
       data-tip-row="${escapeHtml(dr.rowKey)}" data-tip-idx="${idx}">
       ${showLbl ? `<span class="tl-seg-lbl">${escapeHtml(segLabel)}</span>` : ''}
@@ -427,6 +451,10 @@ function buildStateBadges(dr) {
     const recTag = np.recuperarSi ? ' <span class="np-tag-recup" title="Recuperar horas: SI">↺</span>' : '';
     list.push(`<span class="st-badge" title="${escapeHtml(np.isJustificada ? 'Justificada' : 'No Justificada')}: ${escapeHtml(np.motivo)}${np.recuperarSi ? ' · Recuperar H.: SI' : ''}" style="--st-color:${st.color};--st-soft:${st.soft};--st-border:${st.border};--st-text:${st.text};">${ico} ${escapeHtml(np.shortLabel)} · ${fmtHM(np.minutes)}${recTag}</span>`);
   }
+  for (const vc of (dr.vacList || [])) {
+    const st = KNOWN_STATES.VACACIONES;
+    list.push(`<span class="st-badge" title="Vacaciones (${escapeHtml(vc.vacEstado)}): ${escapeHtml(vc.vacTipo)}" style="--st-color:${st.color};--st-soft:${st.soft};--st-border:${st.border};--st-text:${st.text};">🏖️ ${escapeHtml(vc.shortLabel)} · ${fmtHM(vc.minutes)}</span>`);
+  }
   if (dr.openCount > 0) {
     const st = KNOWN_STATES.SIN_CERRAR;
     list.push(`<span class="st-badge" style="--st-color:${st.color};--st-soft:${st.soft};--st-border:${st.border};--st-text:${st.text};"><span class="st-badge-dot"></span>Sin cerrar</span>`);
@@ -447,6 +475,12 @@ function buildGapsCell(dr) {
     pills.push(`<span class="gap-pill early-pill" title="Se desconectó antes de su hora de salida habitual ${escapeHtml(dr.sched.label)} sin registro posterior">🚪 Salió ${dr.earlyExit.startTime} (fin ${dr.earlyExit.endTime}) · ${fmtHM(dr.earlyExit.durationMin)}</span>`);
   }
   if (!pills.length) {
+    if (dr.onlyVacacion) {
+      return `<span class="np-covered-pill is-vac" title="Vacaciones registradas (${escapeHtml(dr.vacRecords?.[0]?.vacEstado || 'Aceptado')})">🏖️ Vacaciones</span>`;
+    }
+    if (dr.hasPresencial && dr.hasVacacion) {
+      return `<span class="np-covered-pill is-vac" title="Tiene conexión presencial y registro de vacaciones en esta fecha">🏖️ Vac. + Pres.</span>`;
+    }
     if (dr.hasPresencial && dr.hasNoPresencial) {
       const isJust = dr.npJustMin >= dr.npNoJustMin;
       return `<span class="np-covered-pill ${isJust ? '' : 'is-nojust'}" title="Tramo no presencial registrado y conciliado en la línea de tiempo">${isJust ? '✓ Cubierto (Justif.)' : '📋 Reg. No Pres.'}</span>`;
@@ -466,8 +500,9 @@ function buildDetailRow(dr, colspan) {
     const st = getStateStyle(it.stateKey);
     const isAlert = it.kind === 'gap' || it.kind === 'early_exit' || it.kind === 'late_entry' || it.kind === 'unreg_absence';
     const isNp = it.kind === 'np_record';
-    const trCls = isAlert ? 'ev-gap' : (isNp ? (it.isJustificada ? 'ev-np-just' : 'ev-np-nojust') : '');
-    const stateLabel = isNp ? `${it.isJustificada ? '✓' : '✕'} ${it.motivo}` : st.label;
+    const isVac = it.kind === 'vac_record';
+    const trCls = isAlert ? 'ev-gap' : (isVac ? 'ev-vac' : (isNp ? (it.isJustificada ? 'ev-np-just' : 'ev-np-nojust') : ''));
+    const stateLabel = isVac ? `🏖️ ${it.vacTipo}` : (isNp ? `${it.isJustificada ? '✓' : '✕'} ${it.motivo}` : st.label);
     const statusCell = it.kind === 'unreg_absence'
       ? '<strong style="color:#991b1b;">SIN REGISTRO</strong>'
       : (it.kind === 'gap'
@@ -476,10 +511,12 @@ function buildDetailRow(dr, colspan) {
           ? '<strong style="color:#9a3412;">SIN REGISTRO</strong>'
           : (it.kind === 'late_entry'
             ? '<strong style="color:#92400e;">TARDÍO</strong>'
-            : (isNp
-              ? `<span class="np-tag-inline ${it.isJustificada ? 'np-tag-just' : 'np-tag-nojust'}">${escapeHtml(it.tipo)}</span>` +
-                (it.recuperarH ? ` <span class="np-tag-recup" style="${it.recuperarH === 'SI' ? '' : 'background:#f1f5f9;color:#64748b;border-color:#e2e8f0;'}">Recup: ${escapeHtml(it.recuperarH)}</span>` : '')
-              : (it.isOpen ? '<span class="pill-open">Sin cerrar</span>' : '<span style="color:#065f46;font-weight:600;">SI</span>')))));
+            : (isVac
+              ? `<span class="np-tag-inline np-tag-vac">Vacaciones · ${escapeHtml(it.vacEstado)}</span>`
+              : (isNp
+                ? `<span class="np-tag-inline ${it.isJustificada ? 'np-tag-just' : 'np-tag-nojust'}">${escapeHtml(it.tipo)}</span>` +
+                  (it.recuperarH ? ` <span class="np-tag-recup" style="${it.recuperarH === 'SI' ? '' : 'background:#f1f5f9;color:#64748b;border-color:#e2e8f0;'}">Recup: ${escapeHtml(it.recuperarH)}</span>` : '')
+                : (it.isOpen ? '<span class="pill-open">Sin cerrar</span>' : '<span style="color:#065f46;font-weight:600;">SI</span>'))))));
     return `
       <tr class="${trCls}">
         <td class="ev-bar mono" style="--st-color:${st.color};white-space:nowrap;font-weight:700;">
@@ -527,12 +564,14 @@ function renderDailyView() {
   const totalNonProd = sorted.reduce((s, d) => s + d.nonProdMin, 0);
   const totalNpJust = sorted.reduce((s, d) => s + d.npJustMin, 0);
   const totalNpNoJust = sorted.reduce((s, d) => s + d.npNoJustMin, 0);
+  const totalVacDays = sorted.filter(d => d.hasVacacion).length;
   $('board-summary').innerHTML = `
     <span><strong>${sorted.length}</strong> jornada${sorted.length === 1 ? '' : 's'}</span>
     <span>·</span>
     <span>Presencial: <strong style="color:#065f46;">${fmtHM(totalProd)}</strong></span>
     <span>·</span>
     <span>Otros estados: <strong>${fmtHM(totalNonProd)}</strong></span>
+    ${totalVacDays > 0 ? `<span>·</span><span>Vacaciones: <strong style="color:#0f766e;">${totalVacDays}d</strong></span>` : ''}
     ${totalNpJust > 0 ? `<span>·</span><span>Justificadas: <strong style="color:#3730a3;">${fmtHM(totalNpJust)}</strong></span>` : ''}
     ${totalNpNoJust > 0 ? `<span>·</span><span>No Justificadas: <strong style="color:#9f1239;">${fmtHM(totalNpNoJust)}</strong></span>` : ''}`;
 
@@ -557,16 +596,21 @@ function renderDailyView() {
       : `<span class="pill-open">Abierta</span>`;
     const absentBadge = dr.isUnregisteredDay
       ? `<span class="np-tag-inline np-tag-unreg">⚠️ Sin registro</span>`
-      : (dr.onlyNoPresencial
-        ? `<span class="np-tag-inline ${dr.npJustMin > 0 && dr.npNoJustMin === 0 ? 'np-tag-just' : 'np-tag-nojust'}">${dr.isPresencialDate ? 'Ausente' : 'Solo NP'}</span>`
-        : '');
+      : (dr.onlyVacacion
+        ? `<span class="np-tag-inline np-tag-vac">🏖️ Vacaciones</span>`
+        : (dr.onlyNoPresencial
+          ? `<span class="np-tag-inline ${dr.npJustMin > 0 && dr.npNoJustMin === 0 ? 'np-tag-just' : 'np-tag-nojust'}">${dr.isPresencialDate ? 'Ausente' : 'Solo NP'}</span>`
+          : ''));
     const timeSubLines = [`<div class="time-sub">Horario ${escapeHtml(formatSchedRange(dr.sched))}</div>`];
     if (dr.npTimeRange) timeSubLines.push(`<div class="time-sub" style="color:#4338ca;font-weight:700;">NP ${escapeHtml(dr.npTimeRange)}</div>`);
+    if (dr.onlyVacacion) timeSubLines.push(`<div class="time-sub" style="color:#0f766e;font-weight:700;">Vacaciones (${escapeHtml(dr.vacRecords?.[0]?.vacEstado || 'Aceptado')})</div>`);
     if (dr.onlyNoPresencial) timeSubLines.push(`<div class="time-sub" style="color:${dr.npJustMin > 0 && dr.npNoJustMin === 0 ? '#4338ca' : '#9f1239'};">${dr.isPresencialDate ? 'Sin conexión en sede' : 'Solo registro NP'}</div>`);
     if (dr.isUnregisteredDay) timeSubLines.push(`<div class="time-sub" style="color:#991b1b;font-weight:700;">Sin presencial ni NP</div>`);
 
+    const rowCls = dr.alertCount > 0 ? 'has-gap' : (dr.onlyVacacion ? 'is-vac-row' : (dr.onlyNoPresencial ? 'is-absent-row' : ''));
+
     html.push(`
-      <tr class="day-row ${exp ? 'expanded' : ''} ${dr.alertCount > 0 ? 'has-gap' : (dr.onlyNoPresencial ? 'is-absent-row' : '')}" data-row-key="${escapeHtml(dr.rowKey)}">
+      <tr class="day-row ${exp ? 'expanded' : ''} ${rowCls}" data-row-key="${escapeHtml(dr.rowKey)}">
         <td>
           <div class="op-cell">
             <span class="caret">▶</span>
@@ -582,7 +626,7 @@ function renderDailyView() {
           </div>
         </td>
         <td class="time-cell">
-          <div class="time-main" style="${dr.onlyNoPresencial || dr.isUnregisteredDay ? 'color:#475569;' : ''}">${escapeHtml(dr.startTime)} → ${endHtml}</div>
+          <div class="time-main" style="${dr.onlyNoPresencial || dr.onlyVacacion || dr.isUnregisteredDay ? 'color:#475569;' : ''}">${escapeHtml(dr.startTime)} → ${endHtml}</div>
           ${timeSubLines.join('')}
         </td>
         <td>${buildTimeline(dr, activeRange)}</td>
@@ -591,6 +635,7 @@ function renderDailyView() {
         <td class="hrs-cell">
           <div class="hrs-main" style="${dr.prodMin === 0 ? 'color:#94a3b8;' : ''}">${fmtHM(dr.prodMin)}</div>
           ${dr.nonProdMin > 0 ? `<div class="hrs-sub">+${fmtHM(dr.nonProdMin)} est.</div>` : ''}
+          ${dr.vacMin > 0 ? `<div class="hrs-sub" style="color:#0f766e;font-weight:700;">${fmtHM(dr.vacMin)} Vac.</div>` : ''}
           ${dr.npTotalMin > 0 ? `<div class="hrs-sub" style="color:${dr.npNoJustMin > 0 ? '#9f1239' : '#3730a3'};font-weight:700;">${fmtHM(dr.npTotalMin)} NP</div>` : ''}
         </td>
       </tr>`);
@@ -620,8 +665,9 @@ function renderOpView() {
     const rows = op.days.map(dr => {
       const exp = state.expandedKeys.has('op_' + dr.rowKey);
       const endHtml = dr.endTime ? escapeHtml(dr.endTime) : `<span class="pill-open">Abierta</span>`;
+      const rowCls = dr.alertCount > 0 ? 'has-gap' : (dr.onlyVacacion ? 'is-vac-row' : (dr.onlyNoPresencial ? 'is-absent-row' : ''));
       return `
-        <tr class="day-row ${exp ? 'expanded' : ''} ${dr.alertCount > 0 ? 'has-gap' : (dr.onlyNoPresencial ? 'is-absent-row' : '')}" data-op-row-key="${escapeHtml(dr.rowKey)}">
+        <tr class="day-row ${exp ? 'expanded' : ''} ${rowCls}" data-op-row-key="${escapeHtml(dr.rowKey)}">
           <td style="white-space:nowrap;width:125px;">
             <div style="display:flex;align-items:center;gap:6px;">
               <span class="caret">▶</span>
@@ -629,9 +675,10 @@ function renderOpView() {
             </div>
           </td>
           <td class="time-cell">
-            <div class="time-main" style="${dr.onlyNoPresencial || dr.isUnregisteredDay ? 'color:#475569;' : ''}">${escapeHtml(dr.startTime)} → ${endHtml}</div>
+            <div class="time-main" style="${dr.onlyNoPresencial || dr.onlyVacacion || dr.isUnregisteredDay ? 'color:#475569;' : ''}">${escapeHtml(dr.startTime)} → ${endHtml}</div>
             <div class="time-sub">Horario ${escapeHtml(formatSchedRange(dr.sched))}</div>
             ${dr.npTimeRange ? `<div class="time-sub" style="color:#4338ca;font-weight:700;">NP ${escapeHtml(dr.npTimeRange)}</div>` : ''}
+            ${dr.onlyVacacion ? `<div class="time-sub" style="color:#0f766e;font-weight:700;">Vacaciones (${escapeHtml(dr.vacRecords?.[0]?.vacEstado || 'Aceptado')})</div>` : ''}
             ${dr.isUnregisteredDay ? `<div class="time-sub" style="color:#991b1b;font-weight:700;">Sin presencial ni NP</div>` : ''}
           </td>
           <td>${buildTimeline(dr, activeRange)}</td>
@@ -639,6 +686,7 @@ function renderOpView() {
           <td>${buildGapsCell(dr)}</td>
           <td class="hrs-cell">
             <div class="hrs-main" style="${dr.prodMin === 0 ? 'color:#94a3b8;' : ''}">${fmtHM(dr.prodMin)}</div>
+            ${dr.vacMin > 0 ? `<div class="hrs-sub" style="color:#0f766e;font-weight:700;">${fmtHM(dr.vacMin)} Vac.</div>` : ''}
             ${dr.npTotalMin > 0 ? `<div class="hrs-sub" style="color:${dr.npNoJustMin > 0 ? '#9f1239' : '#3730a3'};font-weight:700;">${fmtHM(dr.npTotalMin)} NP</div>` : ''}
           </td>
         </tr>${exp ? buildDetailRow(dr, 6) : ''}`;
@@ -655,6 +703,7 @@ function renderOpView() {
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;">
             <span style="color:#065f46;font-weight:700;">Presencial: ${fmtHM(op.prodMin)}</span>
+            ${op.vacDays > 0 ? `<span class="np-tag-inline np-tag-vac">🏖️ Vac: ${op.vacDays}d</span>` : ''}
             ${op.npJustMin > 0 ? `<span class="np-tag-inline np-tag-just">✓ Justif: ${fmtHM(op.npJustMin)}</span>` : ''}
             ${op.npNoJustMin > 0 ? `<span class="np-tag-inline np-tag-nojust">✕ No Just: ${fmtHM(op.npNoJustMin)}</span>` : ''}
             ${op.gapCount > 0 ? `<span class="gap-pill">⚠️ ${op.gapCount} · ${fmtHM(op.gapMin)}</span>` : ''}
@@ -688,13 +737,17 @@ function renderRawView() {
   $('tbody-raw').innerHTML = slice.length ? slice.map(r => {
     const st = getStateStyle(r.stateKey);
     const grp = GROUP_MAP[r._groupId] || GROUP_MAP.ALL;
-    const originBadge = r.isNoPresencial
-      ? `<span class="np-tag-inline ${r.isJustificada ? 'np-tag-just' : 'np-tag-nojust'}">No Presencial</span>`
-      : `<span class="np-tag-inline" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;">Presencial</span>`;
-    const stLabel = r.isNoPresencial ? `${r.isJustificada ? '✓' : '✕'} ${r.motivo}` : st.label;
-    const closedOrRecup = r.isNoPresencial
-      ? `<span class="np-tag-recup" style="${r.recuperarH === 'SI' ? '' : 'background:#f1f5f9;color:#64748b;border-color:#e2e8f0;'}">Recup: ${escapeHtml(r.recuperarH || '—')}</span>`
-      : (r.isOpen ? '<span class="pill-open">NO</span>' : 'SI');
+    const originBadge = r.isVacacion
+      ? `<span class="np-tag-inline np-tag-vac">Vacaciones</span>`
+      : (r.isNoPresencial
+        ? `<span class="np-tag-inline ${r.isJustificada ? 'np-tag-just' : 'np-tag-nojust'}">No Presencial</span>`
+        : `<span class="np-tag-inline" style="background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;">Presencial</span>`);
+    const stLabel = r.isVacacion ? `🏖️ ${r.vacTipo}` : (r.isNoPresencial ? `${r.isJustificada ? '✓' : '✕'} ${r.motivo}` : st.label);
+    const closedOrRecup = r.isVacacion
+      ? `<span class="np-tag-inline np-tag-vac">${escapeHtml(r.vacEstado || 'Aceptado')}</span>`
+      : (r.isNoPresencial
+        ? `<span class="np-tag-recup" style="${r.recuperarH === 'SI' ? '' : 'background:#f1f5f9;color:#64748b;border-color:#e2e8f0;'}">Recup: ${escapeHtml(r.recuperarH || '—')}</span>`
+        : (r.isOpen ? '<span class="pill-open">NO</span>' : 'SI'));
     return `
       <tr>
         <td class="mono" style="white-space:nowrap;font-weight:600;">${escapeHtml(r.fecha)}</td>
@@ -726,7 +779,9 @@ function showTip(seg, e) {
   const it = dr && dr.timelineItems[parseInt(seg.dataset.tipIdx, 10)];
   if (!it) return;
   const st = getStateStyle(it.stateKey);
-  const title = it.kind === 'np_record' ? `${it.tipo} · ${it.motivo}` : st.label;
+  const title = it.kind === 'vac_record'
+    ? `Vacaciones · ${it.vacTipo}`
+    : (it.kind === 'np_record' ? `${it.tipo} · ${it.motivo}` : st.label);
   const obsFull = String(it.obs || '').trim();
   const obsShort = obsFull.length > 360 ? obsFull.slice(0, 355) + '… (clic en la fila para leer completo)' : obsFull;
   tipEl.innerHTML = `
@@ -735,6 +790,7 @@ function showTip(seg, e) {
     <div class="tip-r"><span>Horario</span><strong>${escapeHtml(it.startTime)} → ${escapeHtml(it.endTime)} (${fmtHM(it.durationMin)})</strong></div>
     ${it.kind === 'record' ? `<div class="tip-r"><span>Cerrado</span><strong>${it.isOpen ? 'NO (Abierta)' : 'SI'}</strong></div>` : ''}
     ${it.kind === 'np_record' ? `<div class="tip-r"><span>Recuperar H.</span><strong>${escapeHtml(it.recuperarH || '—')}</strong></div>` : ''}
+    ${it.kind === 'vac_record' ? `<div class="tip-r"><span>Estado</span><strong>${escapeHtml(it.vacEstado || 'Aceptado')}</strong></div>` : ''}
     ${obsShort ? `<div class="tip-o">${escapeHtml(obsShort)}</div>` : ''}`;
   tipEl.classList.add('show');
   posTip(e);
