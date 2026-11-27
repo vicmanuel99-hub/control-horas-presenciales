@@ -1,5 +1,6 @@
 'use strict';
 
+
 const STORAGE_KEY_P = 'control_horas_v4_presencial';
 const STORAGE_KEY_NP = 'control_horas_v4_nopresencial';
 const META_KEY = 'control_horas_v4_meta';
@@ -164,6 +165,17 @@ function fmtHM(mins) {
 function fmtClock(mins) {
   const m = Math.max(0, Math.round(mins || 0));
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+function formatSchedRange(sched) {
+  if (!sched) return '';
+  const sh = String(Math.floor(sched.startMin / 60)).padStart(2, '0');
+  const sm = sched.startMin % 60;
+  const eh = String(Math.floor(sched.endMin / 60)).padStart(2, '0');
+  const em = sched.endMin % 60;
+  const sStr = sm === 0 ? sh : `${sh}:${String(sm).padStart(2, '0')}`;
+  const eStr = em === 0 ? eh : `${eh}:${String(em).padStart(2, '0')}`;
+  return `${sStr} a ${eStr}`;
 }
 
 function parseDateTime(val) {
@@ -732,25 +744,22 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
         ? { startMin: 60, endMin: 660, hours: 10, label: '10h (01–11h)' }
         : { startMin: 420, endMin: 900, hours: 8, label: '8h (07–15h)' }));
 
-    // Inicio y Fin reales mostrados
-    let lastPrimaryEndMs = null;
-    for (const r of primaryRecs) {
-      if (r.endMs !== null && (lastPrimaryEndMs === null || r.endMs > lastPrimaryEndMs)) lastPrimaryEndMs = r.endMs;
-    }
-    const firstLog = normalRecs.find(r => r.startMs !== null) || g.presRecords.find(r => r.startMs !== null) || g.npRecords.find(r => r.startMs !== null);
+    // Inicio de conexión y última hora de logueo mostrados en el primer tramo
+    const logPool = hasPresencial ? (shiftRecs.length ? shiftRecs : normalRecs) : g.npRecords;
+    const firstLog = logPool.find(r => r.startMs !== null) || g.presRecords.find(r => r.startMs !== null) || g.npRecords.find(r => r.startMs !== null);
     let lastLogEndMs = null;
-    for (const r of (hasPresencial ? normalRecs : g.npRecords)) {
+    for (const r of logPool) {
       if (r.endMs !== null && (lastLogEndMs === null || r.endMs > lastLogEndMs)) lastLogEndMs = r.endMs;
     }
+    const latestLogRec = logPool.length ? logPool[logPool.length - 1] : null;
+    const isLatestOpen = !!(hasPresencial && latestLogRec && latestLogRec.isOpen && latestLogRec.endMs === null);
 
-    const useLogStartForFixed = !!(fixedSched && firstLog && firstPrimary && firstLog.startMs < firstPrimary.startMs && ((firstLog.startMs - dayStartMs) / 60000) >= Math.max(0, fixedSched.startMin - 60));
-    const displayStartRec = useLogStartForFixed ? firstLog : firstPrimary;
-    const startTime = displayStartRec ? formatTime(new Date(displayStartRec.startMs)) : (firstLog ? formatTime(new Date(firstLog.startMs)) : '—');
-    const endTime = lastPrimaryEndMs ? formatTime(new Date(lastPrimaryEndMs)) : (lastLogEndMs ? formatTime(new Date(lastLogEndMs)) : '');
-    const endNextDay = !!(lastPrimaryEndMs && formatDateKey(new Date(lastPrimaryEndMs)) !== g.fecha);
+    const startTime = firstLog ? formatTime(new Date(firstLog.startMs)) : '—';
+    const endTime = isLatestOpen ? '' : (lastLogEndMs ? formatTime(new Date(lastLogEndMs)) : '');
+    const endNextDay = !!(!isLatestOpen && lastLogEndMs && formatDateKey(new Date(lastLogEndMs)) !== g.fecha);
     const logStartTime = firstLog ? formatTime(new Date(firstLog.startMs)) : '';
     const logEndTime = lastLogEndMs ? formatTime(new Date(lastLogEndMs)) : '';
-    const hasPrePost = hasPresencial && ((logStartTime && logStartTime !== startTime) || (logEndTime && endTime && logEndTime !== endTime));
+    const hasPrePost = false;
     const npTimeRange = (hasPresencial && hasNoPresencial && npStartMin !== null && npEndMin !== null)
       ? `${fmtClock(npStartMin)}–${fmtClock(npEndMin)}`
       : '';
@@ -950,11 +959,13 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
     }
 
     const npTotalMin = npJustMin + npNoJustMin;
-    const alertMin = gapMin + (earlyExit ? earlyExit.durationMin : 0) + (lateEntry ? lateEntry.durationMin : 0);
-    const alertCount = gaps.length + (earlyExit ? 1 : 0) + (lateEntry ? 1 : 0);
+    // Los huecos (desconexiones) dentro del inicio y fin de logueo se pintan en la línea de tiempo,
+    // pero NO generan alerta. Solo se alertan ausencias sin registro, ingresos tardíos y salidas anticipadas.
+    const alertMin = (earlyExit ? earlyExit.durationMin : 0) + (lateEntry ? lateEntry.durationMin : 0);
+    const alertCount = (earlyExit ? 1 : 0) + (lateEntry ? 1 : 0);
 
     timelineItems.sort((a, b) => (a.startMs - b.startMs) || (a.kind === 'record' ? -1 : 1));
-    const startMinSort = displayStartRec && displayStartRec.startMs !== null ? (displayStartRec.startMs - dayStartMs) / 60000 : 9999;
+    const startMinSort = firstLog && firstLog.startMs !== null ? (firstLog.startMs - dayStartMs) / 60000 : 9999;
 
     dayRows.push({
       rowKey: g.rowKey, opKey: g.opKey, usuario: g.usuario, matricula: g.matricula,
