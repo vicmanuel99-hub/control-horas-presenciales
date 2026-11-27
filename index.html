@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Control de Horas Presenciales y Desconexiones</title>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="./styles.css?v=4" />
+  <link rel="stylesheet" href="./styles.css?v=6" />
 </head>
 <body>
   <div class="drop-overlay" id="drop-overlay">
@@ -193,7 +193,7 @@
                   <div class="ruler" id="main-ruler"></div>
                 </th>
                 <th class="sortable" data-sort="nonProdMin">Estados</th>
-                <th class="sortable" data-sort="gapMin">Desconexiones</th>
+                <th class="sortable" data-sort="gapMin">Alertas / Sin Registro</th>
                 <th class="sortable" data-sort="prodMin" style="text-align:right;">Presencial</th>
               </tr>
             </thead>
@@ -267,8 +267,8 @@
     </section>
   </main>
 
-  <script src="./engine.js?v=5"></script>
-  <script src="./render.js?v=4"></script>
-  <script src="./app.js?v=4"></script>
+  <script src="./engine.js?v=6"></script>
+  <script src="./render.js?v=6"></script>
+  <script src="./app.js?v=6"></script>
 </body>
 </html>

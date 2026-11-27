@@ -269,6 +269,7 @@ function exportCSV() {
   ];
   const body = rows.map(d => {
     const det = [
+      ...(d.unregAbsence ? [`Ausencia sin registro ${d.unregAbsence.startTime}-${d.unregAbsence.endTime} (${fmtHM(d.unregAbsence.durationMin)})`] : []),
       ...(d.lateEntry ? [`Ingreso tardío ${d.lateEntry.startTime}-${d.lateEntry.endTime} (${fmtHM(d.lateEntry.durationMin)})`] : []),
       ...d.gaps.map(g => `Hueco ${g.startTime}-${g.endTime} (${fmtHM(g.durationMin)})`),
       ...(d.earlyExit ? [`Salida ant. ${d.earlyExit.startTime}-${d.earlyExit.endTime} (${fmtHM(d.earlyExit.durationMin)})`] : [])

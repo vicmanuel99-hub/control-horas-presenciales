@@ -73,7 +73,7 @@ function recompute() {
     for (const st of dr.presentStates) stateCounts.set(st, (stateCounts.get(st) || 0) + 1);
   }
 
-  // Ranking de críticos por desconexión / salida anticipada / tardanza sin registro
+  // Ranking de críticos por ausencia sin registro / desconexión / salida anticipada / tardanza
   const critMap = new Map();
   for (const dr of groupRows) {
     if (dr.alertCount === 0) continue;
@@ -81,7 +81,7 @@ function recompute() {
       critMap.set(dr.opKey, {
         opKey: dr.opKey, usuario: dr.usuario, fullName: dr.fullName,
         groupId: dr.groupId, schedLabel: dr.sched.label,
-        gapMin: 0, gapCount: 0, earlyCount: 0, lateCount: 0, holeCount: 0,
+        gapMin: 0, gapCount: 0, earlyCount: 0, lateCount: 0, holeCount: 0, unregCount: 0,
         days: new Set(), sampleRowKey: dr.rowKey, lastTag: ''
       });
     }
@@ -89,12 +89,13 @@ function recompute() {
     c.gapMin += dr.alertMin;
     c.gapCount += dr.alertCount;
     c.holeCount += dr.gapCount;
-    if (dr.earlyExit) { c.earlyCount++; c.lastTag = `Salió ${dr.earlyExit.startTime} (fin ${dr.earlyExit.endTime})`; }
+    if (dr.isUnregisteredDay) { c.unregCount++; c.lastTag = 'Día sin registro'; }
+    else if (dr.earlyExit) { c.earlyCount++; c.lastTag = `Salió ${dr.earlyExit.startTime} (fin ${dr.earlyExit.endTime})`; }
     else if (dr.gapCount > 0) { c.lastTag = `${dr.gapCount} hueco${dr.gapCount === 1 ? '' : 's'}`; }
     else if (dr.lateEntry) { c.lateCount++; c.lastTag = `Entró ${dr.lateEntry.endTime} (ini ${dr.lateEntry.startTime})`; }
     c.days.add(dr.fecha);
   }
-  const criticalOps = [...critMap.values()].sort((a, b) => (b.gapMin - a.gapMin) || (b.gapCount - a.gapCount));
+  const criticalOps = [...critMap.values()].sort((a, b) => (b.unregCount - a.unregCount) || (b.gapMin - a.gapMin) || (b.gapCount - a.gapCount));
 
   // Aplicar filtro de "solo desconexiones/alertas" y estados seleccionados en leyenda
   const filteredDayRows = groupRows.filter(dr => {
@@ -114,7 +115,7 @@ function recompute() {
       if (f.rawOrigin === 'PRESENCIAL' && r.isNoPresencial) continue;
       if (f.rawOrigin === 'NO_PRESENCIAL' && !r.isNoPresencial) continue;
       r._groupId = dr.groupId;
-      if (f.selectedStates.size > 0 && !f.selectedStates.has('DESCONEXION') && !f.selectedStates.has('SALIDA_ANTICIPADA') && !f.selectedStates.has('INGRESO_TARDIO')) {
+      if (f.selectedStates.size > 0 && !f.selectedStates.has('SIN_REGISTRO') && !f.selectedStates.has('DESCONEXION') && !f.selectedStates.has('SALIDA_ANTICIPADA') && !f.selectedStates.has('INGRESO_TARDIO')) {
         const match = f.selectedStates.has(r.stateKey) || (f.selectedStates.has('SIN_CERRAR') && r.isOpen);
         if (!match) continue;
       }
@@ -246,13 +247,14 @@ function renderAlertPanel() {
   const totalGapMin = criticalOps.reduce((s, c) => s + c.gapMin, 0);
   const totalGaps = criticalOps.reduce((s, c) => s + c.gapCount, 0);
   const openCount = groupRows.reduce((s, r) => s + r.openCount, 0);
+  const unregRows = groupRows.filter(r => r.isUnregisteredDay);
   const npJustRows = groupRows.filter(r => r.npJustMin > 0);
   const npNoJustRows = groupRows.filter(r => r.npNoJustMin > 0);
   const npJustMin = npJustRows.reduce((s, r) => s + r.npJustMin, 0);
   const npNoJustMin = npNoJustRows.reduce((s, r) => s + r.npNoJustMin, 0);
   const npSummaryPills = `
-    ${npJustRows.length ? `<span class="alert-kpi-pill np-just-pill" data-quick-state="NP_JUSTIFICADA" title="Clic para filtrar solo Justificadas">✓ ${npJustRows.length} Justif. · ${fmtHM(npJustMin)}</span>` : ''}
-    ${npNoJustRows.length ? `<span class="alert-kpi-pill np-nojust-pill" data-quick-state="NP_NO_JUSTIFICADA" title="Clic para filtrar solo Faltas / No Justificadas">✕ ${npNoJustRows.length} No Justif. · ${fmtHM(npNoJustMin)}</span>` : ''}`;
+    ${npJustRows.length ? `<span class="alert-kpi-pill np-just-pill" data-quick-state="NP_JUSTIFICADA" title="Registrado en No Presenciales (no es alerta) · Clic para filtrar">✓ ${npJustRows.length} Justif. · ${fmtHM(npJustMin)}</span>` : ''}
+    ${npNoJustRows.length ? `<span class="alert-kpi-pill np-nojust-pill" data-quick-state="NP_NO_JUSTIFICADA" title="Falta registrada en No Presenciales (documentada) · Clic para filtrar">✕ ${npNoJustRows.length} No Justif. · ${fmtHM(npNoJustMin)}</span>` : ''}`;
 
   const groupLabel = state.role === 'SUPERVISORES' && state.filters.group === 'ALL'
     ? 'Supervisores'
@@ -266,7 +268,7 @@ function renderAlertPanel() {
       <div class="alert-panel ok-panel">
         <div class="alert-head">
           <div class="alert-title">
-            <span>✅ Sin desconexiones sin justificar en ${escapeHtml(groupLabel)} (${escapeHtml(dayLabel)})</span>
+            <span>✅ Todo registrado (sin ausencias ni desconexiones sin registro) en ${escapeHtml(groupLabel)} (${escapeHtml(dayLabel)})</span>
             ${npSummaryPills}
           </div>
         </div>
@@ -295,8 +297,9 @@ function renderAlertPanel() {
     <div class="alert-panel">
       <div class="alert-head">
         <div class="alert-title">
-          <span>🚨 Alerta: Desconexiones y Salidas sin Registro · ${escapeHtml(groupLabel)} (${escapeHtml(dayLabel)})</span>
+          <span>🚨 Alerta: Sin Registro (Ausencias, Desconexiones y Salidas) · ${escapeHtml(groupLabel)} (${escapeHtml(dayLabel)})</span>
           ${criticalOps.length ? `<span class="alert-kpi-pill">${criticalOps.length} ${criticalOps.length === 1 ? personSingular : personPlural} · ${totalGaps} alerta${totalGaps === 1 ? '' : 's'} · ${fmtHM(totalGapMin)} sin registro</span>` : ''}
+          ${unregRows.length ? `<span class="alert-kpi-pill" data-quick-state="SIN_REGISTRO" style="cursor:pointer;background:#fee2e2;color:#991b1b;border-color:#f87171;" title="Clic para filtrar solo ausencias sin registro">⚠️ ${unregRows.length} sin registro (día completo)</span>` : ''}
           ${openCount > 0 ? `<span class="alert-kpi-pill open-pill">⚠️ ${openCount} sin cerrar</span>` : ''}
           ${npSummaryPills}
         </div>
@@ -338,6 +341,7 @@ function renderLegend() {
     if (stateCounts.has('NP_JUSTIFICADA') || state.noPresencialRecords.some(r => r.isJustificada)) keys.add('NP_JUSTIFICADA');
     if (stateCounts.has('NP_NO_JUSTIFICADA') || state.noPresencialRecords.some(r => !r.isJustificada)) keys.add('NP_NO_JUSTIFICADA');
   }
+  if (stateCounts.has('SIN_REGISTRO')) keys.add('SIN_REGISTRO');
   if (stateCounts.has('DESCONEXION')) keys.add('DESCONEXION');
   if (stateCounts.has('SALIDA_ANTICIPADA')) keys.add('SALIDA_ANTICIPADA');
   if (stateCounts.has('INGRESO_TARDIO')) keys.add('INGRESO_TARDIO');
@@ -348,7 +352,7 @@ function renderLegend() {
     const cnt = stateCounts.get(st.key) || 0;
     const isSel = sel.has(st.key);
     const isDim = sel.size > 0 && !isSel;
-    const dotCls = st.striped ? 'striped' : (st.stripedOrange ? 'striped-orange' : (st.stripedIndigo ? 'striped-indigo' : (st.stripedCrimson ? 'striped-crimson' : '')));
+    const dotCls = st.striped ? 'striped' : (st.stripedOrange ? 'striped-orange' : (st.stripedIndigo ? 'striped-indigo' : (st.stripedCrimson ? 'striped-crimson' : (st.stripedAlert ? 'striped-alert' : ''))));
     return `
       <button class="st-pill ${isSel ? 'selected' : ''} ${isDim ? 'dimmed' : ''}" data-state="${escapeHtml(st.key)}"
         style="--st-color:${st.color};--st-soft:${st.soft};--st-border:${st.border};--st-text:${st.text};">
@@ -393,13 +397,14 @@ function buildTimeline(dr, range) {
     const st = getStateStyle(it.stateKey);
     const isGap = it.kind === 'gap';
     const isMissing = it.kind === 'early_exit' || it.kind === 'late_entry';
+    const isUnreg = it.kind === 'unreg_absence';
     const isNp = it.kind === 'np_record';
     const npCls = isNp ? (it.isJustificada ? 'is-np-just' : 'is-np-nojust') : '';
     const match = sel.size === 0 || sel.has(it.stateKey) || (sel.has('SIN_CERRAR') && it.isOpen);
-    const segLabel = isNp ? `${it.isJustificada ? '✓' : '✕'} ${it.shortLabel}` : st.short;
-    const showLbl = width >= (isNp ? 9 : 12) && !isGap && it.stateKey !== 'PRODUCTIVO' && it.stateKey !== 'NO_PAGABLE';
-    const z = (isGap || isMissing) ? 5 : (isNp ? 4 : (it.stateKey === 'PRODUCTIVO' ? 2 : (it.stateKey === 'NO_PAGABLE' ? 1 : 3)));
-    return `<div class="tl-seg ${isGap ? 'is-gap' : ''} ${isMissing ? 'is-missing' : ''} ${npCls} ${it.isOpen ? 'is-open' : ''} ${!match ? 'is-dim' : ''}"
+    const segLabel = isUnreg ? '⚠️ Sin registro' : (isNp ? `${it.isJustificada ? '✓' : '✕'} ${it.shortLabel}` : st.short);
+    const showLbl = width >= (isNp || isUnreg ? 9 : 12) && !isGap && it.stateKey !== 'PRODUCTIVO' && it.stateKey !== 'NO_PAGABLE';
+    const z = (isGap || isMissing || isUnreg) ? 5 : (isNp ? 4 : (it.stateKey === 'PRODUCTIVO' ? 2 : (it.stateKey === 'NO_PAGABLE' ? 1 : 3)));
+    return `<div class="tl-seg ${isGap ? 'is-gap' : ''} ${isMissing ? 'is-missing' : ''} ${isUnreg ? 'is-unreg' : ''} ${npCls} ${it.isOpen ? 'is-open' : ''} ${!match ? 'is-dim' : ''}"
       style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;background:${st.color};z-index:${z};"
       data-tip-row="${escapeHtml(dr.rowKey)}" data-tip-idx="${idx}">
       ${showLbl ? `<span class="tl-seg-lbl">${escapeHtml(segLabel)}</span>` : ''}
@@ -409,6 +414,10 @@ function buildTimeline(dr, range) {
 }
 
 function buildStateBadges(dr) {
+  if (dr.isUnregisteredDay) {
+    const st = KNOWN_STATES.SIN_REGISTRO;
+    return `<div class="badges-wrap"><span class="st-badge" style="--st-color:${st.color};--st-soft:${st.soft};--st-border:${st.border};--st-text:${st.text};">⚠️ Sin registro (día)</span></div>`;
+  }
   const list = [];
   for (const x of dr.nonProdList) {
     const st = getStateStyle(x.stateKey);
@@ -430,6 +439,9 @@ function buildStateBadges(dr) {
 
 function buildGapsCell(dr) {
   const pills = [];
+  if (dr.unregAbsence) {
+    pills.push(`<span class="gap-pill unreg-pill" title="No tiene registro en Horas Presenciales ni en Horas No Presenciales">🚨 Sin registro ${dr.unregAbsence.startTime}–${dr.unregAbsence.endTime} · ${fmtHM(dr.unregAbsence.durationMin)}</span>`);
+  }
   if (dr.lateEntry) {
     pills.push(`<span class="gap-pill late-pill" title="Ingreso tardío respecto a su horario habitual ${escapeHtml(dr.sched.label)}">⏰ Tardío ${dr.lateEntry.startTime}–${dr.lateEntry.endTime} · ${fmtHM(dr.lateEntry.durationMin)}</span>`);
   }
@@ -457,20 +469,22 @@ function buildGapsCell(dr) {
 function buildDetailRow(dr, colspan) {
   const rows = dr.timelineItems.map(it => {
     const st = getStateStyle(it.stateKey);
-    const isAlert = it.kind === 'gap' || it.kind === 'early_exit' || it.kind === 'late_entry';
+    const isAlert = it.kind === 'gap' || it.kind === 'early_exit' || it.kind === 'late_entry' || it.kind === 'unreg_absence';
     const isNp = it.kind === 'np_record';
     const trCls = isAlert ? 'ev-gap' : (isNp ? (it.isJustificada ? 'ev-np-just' : 'ev-np-nojust') : '');
     const stateLabel = isNp ? `${it.isJustificada ? '✓' : '✕'} ${it.motivo}` : st.label;
-    const statusCell = it.kind === 'gap'
-      ? '<strong style="color:#9f1239;">HUECO</strong>'
-      : (it.kind === 'early_exit'
-        ? '<strong style="color:#9a3412;">SIN REGISTRO</strong>'
-        : (it.kind === 'late_entry'
-          ? '<strong style="color:#92400e;">TARDÍO</strong>'
-          : (isNp
-            ? `<span class="np-tag-inline ${it.isJustificada ? 'np-tag-just' : 'np-tag-nojust'}">${escapeHtml(it.tipo)}</span>` +
-              (it.recuperarH ? ` <span class="np-tag-recup" style="${it.recuperarH === 'SI' ? '' : 'background:#f1f5f9;color:#64748b;border-color:#e2e8f0;'}">Recup: ${escapeHtml(it.recuperarH)}</span>` : '')
-            : (it.isOpen ? '<span class="pill-open">Sin cerrar</span>' : '<span style="color:#065f46;font-weight:600;">SI</span>'))));
+    const statusCell = it.kind === 'unreg_absence'
+      ? '<strong style="color:#991b1b;">SIN REGISTRO</strong>'
+      : (it.kind === 'gap'
+        ? '<strong style="color:#9f1239;">HUECO</strong>'
+        : (it.kind === 'early_exit'
+          ? '<strong style="color:#9a3412;">SIN REGISTRO</strong>'
+          : (it.kind === 'late_entry'
+            ? '<strong style="color:#92400e;">TARDÍO</strong>'
+            : (isNp
+              ? `<span class="np-tag-inline ${it.isJustificada ? 'np-tag-just' : 'np-tag-nojust'}">${escapeHtml(it.tipo)}</span>` +
+                (it.recuperarH ? ` <span class="np-tag-recup" style="${it.recuperarH === 'SI' ? '' : 'background:#f1f5f9;color:#64748b;border-color:#e2e8f0;'}">Recup: ${escapeHtml(it.recuperarH)}</span>` : '')
+              : (it.isOpen ? '<span class="pill-open">Sin cerrar</span>' : '<span style="color:#065f46;font-weight:600;">SI</span>')))));
     return `
       <tr class="${trCls}">
         <td class="ev-bar mono" style="--st-color:${st.color};white-space:nowrap;font-weight:700;">
@@ -546,13 +560,16 @@ function renderDailyView() {
     const endHtml = dr.endTime
       ? `${escapeHtml(dr.endTime)}${dr.endNextDay ? '<span style="color:#db2777;font-size:10px;">+1d</span>' : ''}`
       : `<span class="pill-open">Abierta</span>`;
-    const absentBadge = dr.onlyNoPresencial
-      ? `<span class="np-tag-inline ${dr.npJustMin > 0 && dr.npNoJustMin === 0 ? 'np-tag-just' : 'np-tag-nojust'}">${dr.isPresencialDate ? 'Ausente' : 'Solo NP'}</span>`
-      : '';
+    const absentBadge = dr.isUnregisteredDay
+      ? `<span class="np-tag-inline np-tag-unreg">⚠️ Sin registro</span>`
+      : (dr.onlyNoPresencial
+        ? `<span class="np-tag-inline ${dr.npJustMin > 0 && dr.npNoJustMin === 0 ? 'np-tag-just' : 'np-tag-nojust'}">${dr.isPresencialDate ? 'Ausente' : 'Solo NP'}</span>`
+        : '');
     const timeSubLines = [];
     if (dr.hasPrePost) timeSubLines.push(`<div class="time-sub">Log ${escapeHtml(dr.logStartTime)}–${escapeHtml(dr.logEndTime || '…')}</div>`);
     if (dr.npTimeRange) timeSubLines.push(`<div class="time-sub" style="color:#4338ca;font-weight:700;">NP ${escapeHtml(dr.npTimeRange)}</div>`);
     if (dr.onlyNoPresencial) timeSubLines.push(`<div class="time-sub" style="color:${dr.npJustMin > 0 && dr.npNoJustMin === 0 ? '#4338ca' : '#9f1239'};">${dr.isPresencialDate ? 'Sin conexión en sede' : 'Solo registro NP'}</div>`);
+    if (dr.isUnregisteredDay) timeSubLines.push(`<div class="time-sub" style="color:#991b1b;font-weight:700;">Sin presencial ni NP</div>`);
 
     html.push(`
       <tr class="day-row ${exp ? 'expanded' : ''} ${dr.alertCount > 0 ? 'has-gap' : (dr.onlyNoPresencial ? 'is-absent-row' : '')}" data-row-key="${escapeHtml(dr.rowKey)}">
@@ -618,8 +635,9 @@ function renderOpView() {
             </div>
           </td>
           <td class="time-cell">
-            <div class="time-main" style="${dr.onlyNoPresencial ? 'color:#475569;' : ''}">${escapeHtml(dr.startTime)} → ${endHtml}</div>
+            <div class="time-main" style="${dr.onlyNoPresencial || dr.isUnregisteredDay ? 'color:#475569;' : ''}">${escapeHtml(dr.startTime)} → ${endHtml}</div>
             ${dr.npTimeRange ? `<div class="time-sub" style="color:#4338ca;font-weight:700;">NP ${escapeHtml(dr.npTimeRange)}</div>` : ''}
+            ${dr.isUnregisteredDay ? `<div class="time-sub" style="color:#991b1b;font-weight:700;">Sin presencial ni NP</div>` : ''}
           </td>
           <td>${buildTimeline(dr, activeRange)}</td>
           <td>${buildStateBadges(dr)}</td>
@@ -649,7 +667,7 @@ function renderOpView() {
         </div>
         <div class="table-scroll">
           <table class="sched" style="min-width:900px;">
-            <thead><tr><th>Día</th><th>Inicio → Fin</th><th class="th-tl"><div class="ruler" style="margin:0;">${ruler}</div></th><th>Estados</th><th>Desconexiones</th><th style="text-align:right;">Presencial</th></tr></thead>
+            <thead><tr><th>Día</th><th>Inicio → Fin</th><th class="th-tl"><div class="ruler" style="margin:0;">${ruler}</div></th><th>Estados</th><th>Alertas / Sin Registro</th><th style="text-align:right;">Presencial</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
