@@ -22,6 +22,16 @@ function isSupervisorRecord(usuario, fullName) {
   );
 }
 
+// Horarios fijos definidos manualmente (prevalecen sobre la inferencia automática del Excel)
+function getFixedSchedule(usuario, fullName) {
+  const u = String(usuario || '').trim();
+  const n = normalizeKey(fullName);
+  if (u === '6195' || n.includes('nizama')) {
+    return { turno: 'NOCTURNO', startMin: 60, endMin: 660, hours: 10, label: '10h (01–11h)' };
+  }
+  return null;
+}
+
 // Los 4 grupos principales de turno y campaña (Operadores) y subgrupos de Supervisores
 const GROUPS = [
   { id: 'ALL', label: 'Todos los turnos', icon: '👥', color: '#0f4c81', soft: '#eff6ff', text: '#0f4c81', badgeCls: 'g-otros' },
@@ -578,8 +588,11 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
       return true;
     });
 
+    const fixedSched = getFixedSchedule(g.usuario, g.fullName);
     let turnoReal = 'DIURNO';
-    if (hasPresencial) {
+    if (fixedSched && fixedSched.turno) {
+      turnoReal = fixedSched.turno;
+    } else if (hasPresencial) {
       turnoReal = classifyShiftTurno(normalRecs, dayStartMs);
     } else {
       const totalNpMin = g.npRecords.reduce((s, r) => s + r.durationMin, 0);
@@ -664,7 +677,7 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
     prepared.push({
       g, dayStartMs, hasPresencial, hasNoPresencial, onlyNoPresencial,
       jornadaRecs, primaryRecs, firstPrimary, normalRecs, shiftRecs,
-      turnoReal, isSup, campana, groupId,
+      turnoReal, fixedSched, isSup, campana, groupId,
       effStartMin, effEndMin, connStartMin, connEndMin, npStartMin, npEndMin
     });
   }
@@ -707,14 +720,16 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
     const {
       g, dayStartMs, hasPresencial, hasNoPresencial, onlyNoPresencial,
       jornadaRecs, primaryRecs, firstPrimary, normalRecs, shiftRecs,
-      turnoReal, isSup, campana, groupId,
+      turnoReal, fixedSched, isSup, campana, groupId,
       connStartMin, connEndMin, npStartMin, npEndMin
     } = item;
 
     const bKey = `${g.opKey}__${turnoReal}`;
-    const sched = scheduleMap.get(bKey) || fallbackSchedMap.get(bKey) || (turnoReal === 'NOCTURNO'
-      ? { startMin: 60, endMin: 660, hours: 10, label: '10h (01–11h)' }
-      : { startMin: 420, endMin: 900, hours: 8, label: '8h (07–15h)' });
+    const sched = fixedSched
+      ? { startMin: fixedSched.startMin, endMin: fixedSched.endMin, hours: fixedSched.hours, label: fixedSched.label }
+      : (scheduleMap.get(bKey) || fallbackSchedMap.get(bKey) || (turnoReal === 'NOCTURNO'
+        ? { startMin: 60, endMin: 660, hours: 10, label: '10h (01–11h)' }
+        : { startMin: 420, endMin: 900, hours: 8, label: '8h (07–15h)' }));
 
     // Inicio y Fin reales mostrados
     let lastPrimaryEndMs = null;
@@ -727,7 +742,9 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
       if (r.endMs !== null && (lastLogEndMs === null || r.endMs > lastLogEndMs)) lastLogEndMs = r.endMs;
     }
 
-    const startTime = firstPrimary ? formatTime(new Date(firstPrimary.startMs)) : (firstLog ? formatTime(new Date(firstLog.startMs)) : '—');
+    const useLogStartForFixed = !!(fixedSched && firstLog && firstPrimary && firstLog.startMs < firstPrimary.startMs && ((firstLog.startMs - dayStartMs) / 60000) >= Math.max(0, fixedSched.startMin - 60));
+    const displayStartRec = useLogStartForFixed ? firstLog : firstPrimary;
+    const startTime = displayStartRec ? formatTime(new Date(displayStartRec.startMs)) : (firstLog ? formatTime(new Date(firstLog.startMs)) : '—');
     const endTime = lastPrimaryEndMs ? formatTime(new Date(lastPrimaryEndMs)) : (lastLogEndMs ? formatTime(new Date(lastLogEndMs)) : '');
     const endNextDay = !!(lastPrimaryEndMs && formatDateKey(new Date(lastPrimaryEndMs)) !== g.fecha);
     const logStartTime = firstLog ? formatTime(new Date(firstLog.startMs)) : '';
@@ -931,7 +948,7 @@ function buildOperatorDayRows(presRecords, npRecords, minGap) {
     const alertCount = gaps.length + (earlyExit ? 1 : 0) + (lateEntry ? 1 : 0);
 
     timelineItems.sort((a, b) => (a.startMs - b.startMs) || (a.kind === 'record' ? -1 : 1));
-    const startMinSort = firstPrimary && firstPrimary.startMs !== null ? (firstPrimary.startMs - dayStartMs) / 60000 : 9999;
+    const startMinSort = displayStartRec && displayStartRec.startMs !== null ? (displayStartRec.startMs - dayStartMs) / 60000 : 9999;
 
     dayRows.push({
       rowKey: g.rowKey, opKey: g.opKey, usuario: g.usuario, matricula: g.matricula,
